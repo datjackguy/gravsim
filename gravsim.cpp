@@ -5,9 +5,11 @@
 #include <thread>
 #include <chrono>
 
+#include "raylib.h"
+
 const double pi = 3.141592653589793;
 const double G = 6.67430e-11;
-const double epsilon = 5e9;
+const double epsilon = 1e14;
 
 double randomDouble(double min, double max) {
     // std::mt19937 gen(3);
@@ -47,7 +49,7 @@ std::vector<double> generate_masses(int N) {
                 mass_candidate = x_candidate;
             }
         }
-        masses[i] = 1.989e30*mass_candidate;
+        masses[i] = 1e4*1.989e30*mass_candidate;
     }
     return masses;
 }
@@ -70,8 +72,8 @@ double pythagoras(double x, double y, double z) {
 std::tuple<double, double, double> globularVel(double x, double y, double z, double totalMass) {
     double velScale;
     double radius = pythagoras(x,y,z);
-    double e = 0.5;
-    velScale = 0.5 * pow((G*totalMass/(radius+e)),0.25);
+    double e = 0;
+    velScale = pow((G*totalMass/(radius+e)),0.5);
 
     double velx = randomDouble(0,1)-0.5;
     double vely = randomDouble(0,1)-0.5;
@@ -79,9 +81,11 @@ std::tuple<double, double, double> globularVel(double x, double y, double z, dou
 
     double mag = pythagoras(velx,vely,velz);
 
-    velx = velx/mag*velScale;
-    vely = vely/mag*velScale;
-    velz = velz/mag*velScale;
+    velx = 2*velx/mag*velScale;
+    vely = 2*vely/mag*velScale;
+    velz = 2*velz/mag*velScale;
+
+    std::cout << velx << " " << vely << " " << velz << "\n";
 
     return {velx,vely,velz};
 
@@ -182,26 +186,27 @@ std::vector<double> forceCalc(Particle &p1, Particle &p2) {
     return {forcex,forcey,forcez};
 }
 
-double timestep = 10*24*60*60;
+double timestep = 1*10*24*60*60;
 double runtime = 100*365.25*24*60*60;
 int frame = 0;
 int frames = 10;
 std::vector<double> times;
 double currentTime = 0.0;
 std::vector<Particle> particles;
-int particleN = 10;
-double plotSize = 2e11;
+int particleN = 100;
+double plotSize = 2e15;
 double totalMass = 0;
 std::vector<std::vector<int>> particlePairs;
 
 void initialise_particles() {
     std::vector<double> masses = generate_masses(particleN);
-    double totalMass = 0;
+    // double totalMass = 0;
     for (int i = 0; i < particleN; i++) {
         totalMass = totalMass + masses[i];
     }
+    // std::cout << "Total Mass: " << totalMass;
     for (int i = 0; i < particleN; i++) {
-        std::tuple<double, double, double> pos = randomSph(plotSize);
+        std::tuple<double, double, double> pos = randomSph(plotSize/2);
         double xpos = std::get<0>(pos);
         double ypos = std::get<1>(pos);
         double zpos = std::get<2>(pos);
@@ -213,11 +218,12 @@ void initialise_particles() {
 
         particles.push_back(Particle(masses[i],xpos,ypos,zpos,xvel,yvel,zvel));
     }
+    particles.push_back(Particle(1e38, 0, 0, 0, 0, 0, 0));
 }
 
 void create_particle_pairs() {
-    for (int i = 0; i < particleN; i++) {
-        for (int j = i+1; j < particleN; j++) {
+    for (int i = 0; i < particles.size(); i++) {
+        for (int j = i+1; j < particles.size(); j++) {
             std::vector<int> pair = {i,j}; 
             particlePairs.push_back(pair);
         }
@@ -227,7 +233,7 @@ void create_particle_pairs() {
 void momentum_centre() {
     std::vector<double> totalMomentum = {0,0,0};
     std::vector<double> CoM0 = {0,0,0};
-    for (int i = 0; i < particleN; i++) {
+    for (int i = 0; i < particles.size(); i++) {
         CoM0[0] = CoM0[0] + particles[i].getPos()[0] * particles[i].getMass();
         CoM0[1] = CoM0[1] + particles[i].getPos()[1] * particles[i].getMass();
         CoM0[2] = CoM0[2] + particles[i].getPos()[2] * particles[i].getMass();
@@ -238,7 +244,7 @@ void momentum_centre() {
     CoM0[0] = CoM0[0] / totalMass;
     CoM0[1] = CoM0[1] / totalMass;
     CoM0[2] = CoM0[2] / totalMass;
-    for (int i = 0; i < particleN; i++) {
+    for (int i = 0; i < particles.size(); i++) {
         double newPosx = particles[i].getPos()[0] - CoM0[0];
         double newPosy = particles[i].getPos()[1] - CoM0[1];
         double newPosz = particles[i].getPos()[2] - CoM0[2];
@@ -309,11 +315,52 @@ int main() {
 
     initialise_particles();
     create_particle_pairs();
-    while (frame < frames) {
-        std::cout << particles[0].getPos()[0] << "\n";
+
+    InitWindow(800, 800, "Gravity Simulation");
+
+    SetTargetFPS(60);
+
+    // std::cout << "Total Mass" << totalMass;
+
+    while (!WindowShouldClose()) {
+        float dt = GetFrameTime();
+
+        BeginDrawing();
+
+        ClearBackground(BLACK);
+
+
+        for (int i = 0; i < particles.size(); i++) {
+            std::vector ppos = particles[i].getPos();
+            double px = ppos[0]/plotSize*800+400;
+            double py = ppos[1]/plotSize*800+400;
+            double pz = ppos[2]/plotSize*800+400;
+
+            // float circleSize = particles[i].getMass()/1.989e30; 
+            float circleSize;// = std::log(particles[i].getMass())/std::log((1.989e34))*2;
+            // std::cout << circleSize << "\n";
+            if (particles[i].getMass() > 1e36) {
+                circleSize = 10;
+            }
+            else {
+                circleSize = 2;
+            }
+
+            DrawCircle((int)px, (int)py, circleSize, WHITE);
+        }
+
+        EndDrawing();
+        // std::cout << particles[0].getPos()[0]/plotSize*800 << "\n";
         update();
-        frame++;
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+
     }
+
+    CloseWindow();
+    // while (frame < frames) {
+    //     std::cout << particles[0].getPos()[0] << "\n";
+    //     update();
+    //     frame++;
+    //     std::this_thread::sleep_for(std::chrono::seconds(1));
+    // }
 
 }
