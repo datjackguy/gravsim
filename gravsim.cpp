@@ -9,7 +9,7 @@
 
 const double pi = 3.141592653589793;
 const double G = 6.67430e-11;
-const double epsilon = 1e14;
+const double epsilon = 5e13;
 
 double randomDouble(double min, double max) {
     // std::mt19937 gen(3);
@@ -49,17 +49,18 @@ std::vector<double> generate_masses(int N) {
                 mass_candidate = x_candidate;
             }
         }
-        masses[i] = 1e4*1.989e30*mass_candidate;
+        masses[i] = 3e4*1.989e30*mass_candidate;
     }
     return masses;
 }
 
 std::tuple<double, double, double> randomSph(double maxRad) {
-    double rho = randomDouble(0.0,maxRad);
+    // double rho = randomDouble(0.0,maxRad);
+    double rho = randomDouble(maxRad/20,maxRad);
     double theta = randomDouble(0.0,pi);
     double phi = randomDouble(0.0, 2*pi);
     double x = rho * std::sin(theta) * std::cos(phi);
-    double y = rho * std::sin(theta) * std::sin(phi);
+    double y = 0.4 * rho * std::sin(theta) * std::sin(phi);
     double z = rho * std::cos(theta);
     return {x, y, z};
 }
@@ -72,20 +73,40 @@ double pythagoras(double x, double y, double z) {
 std::tuple<double, double, double> globularVel(double x, double y, double z, double totalMass) {
     double velScale;
     double radius = pythagoras(x,y,z);
-    double e = 0;
-    velScale = pow((G*totalMass/(radius+e)),0.5);
+    double e = 1e12;
+    velScale = 2* pow((G*totalMass/(radius+e)),0.5);
 
-    double velx = randomDouble(0,1)-0.5;
-    double vely = randomDouble(0,1)-0.5;
-    double velz = -(velx*x+vely*y)/z;
+    // double velx = randomDouble(0,1)-0.5;
+    // double vely = randomDouble(0,1)-0.5;
+    // double velz = -(velx*x+vely*y)/z;
+
+    // double mag = pythagoras(velx,vely,velz);
+
+    // velx = 2.5*velx/mag*velScale;
+    // vely = 0.1*2*vely/mag*velScale;
+    // velz = 2.5*velz/mag*velScale;
+
+
+    //Cylindrical Polar
+    double r = sqrt(x*x+z*z);
+    double phi = atan2(z,x);
+    //r velocity ~ 0
+    double dr_dt = randomDouble(-0.1,0.1);
+    //y velocity ~ 0
+    double dy_dt = randomDouble(-0.2,0.2);
+    //phi velocity - rotation
+    double omega = 5*sqrt(G*totalMass/(radius*radius*radius));
+    double velx = dr_dt*cos(phi)-r*omega*sin(phi);
+    double vely = dy_dt;
+    double velz = dr_dt*sin(phi)+r*omega*cos(phi);
 
     double mag = pythagoras(velx,vely,velz);
 
-    velx = 2*velx/mag*velScale;
-    vely = 2*vely/mag*velScale;
-    velz = 2*velz/mag*velScale;
+    // velx = velx/mag*velScale;
+    // vely = vely/mag*velScale;
+    // velz = velz/mag*velScale;
 
-    std::cout << velx << " " << vely << " " << velz << "\n";
+    // std::cout << velx << " " << vely << " " << velz << "\n";
 
     return {velx,vely,velz};
 
@@ -186,14 +207,14 @@ std::vector<double> forceCalc(Particle &p1, Particle &p2) {
     return {forcex,forcey,forcez};
 }
 
-double timestep = 1*10*24*60*60;
+double timestep = 0.5*10*24*60*60;
 double runtime = 100*365.25*24*60*60;
 int frame = 0;
 int frames = 10;
 std::vector<double> times;
 double currentTime = 0.0;
 std::vector<Particle> particles;
-int particleN = 100;
+int particleN = 300;
 double plotSize = 2e15;
 double totalMass = 0;
 std::vector<std::vector<int>> particlePairs;
@@ -218,7 +239,8 @@ void initialise_particles() {
 
         particles.push_back(Particle(masses[i],xpos,ypos,zpos,xvel,yvel,zvel));
     }
-    particles.push_back(Particle(1e38, 0, 0, 0, 0, 0, 0));
+    particles.push_back(Particle(5e38, 0, 0, 0, 0, 0, 0));
+    particles.push_back(Particle(5e38, 1e16, 0, 1e16, -7e6, 5e4, -6e6));
 }
 
 void create_particle_pairs() {
@@ -276,47 +298,76 @@ void update() {
     }
 }
 
+void UpdateOrbitCamera(Camera3D& camera, float& yaw, float& pitch, float& distance)
+{
+    Vector2 mouseDelta = GetMouseDelta();
+
+    if (IsMouseButtonDown(MOUSE_BUTTON_LEFT))
+    {
+        yaw -= mouseDelta.x * 0.01f;
+        pitch -= mouseDelta.y * 0.01f;
+    }
+
+    // Limit the pitch so the camera does not flip upside down.
+    const float pitchLimit = 1.5f;
+
+    if (pitch > pitchLimit)
+    {
+        pitch = pitchLimit;
+    }
+
+    if (pitch < -pitchLimit)
+    {
+        pitch = -pitchLimit;
+    }
+
+    distance -= GetMouseWheelMove() * 1.0f;
+
+    if (distance < 3.0f)
+    {
+        distance = 3.0f;
+    }
+
+    if (distance > 40.0f)
+    {
+        distance = 40.0f;
+    }
+
+    // Convert yaw, pitch and distance into a 3D camera position.
+    camera.position.x = camera.target.x + distance * cosf(pitch) * sinf(yaw);
+    camera.position.y = camera.target.y + distance * sinf(pitch);
+    camera.position.z = camera.target.z + distance * cosf(pitch) * cosf(yaw);
+}
+
+Vector3 ToVector3(const std::vector<double>& values)
+{
+    return Vector3{
+        static_cast<float>(values[0]),
+        static_cast<float>(values[1]),
+        static_cast<float>(values[2])
+    };
+}
+
 int main() {
-    // Random Seed
-    // std::random_device rd;
-    // std::mt19937 gen(rd());
-    // Manual Seed
-    // std::mt19937 gen(3);
-
-    // std::cout << "IMF Check\n";
-    // std::cout << initial_mass_function(0.03) << "\n";
-    // std::cout << initial_mass_function(0.3) << "\n";
-    // std::cout << initial_mass_function(0.7) << "\n";
-    // std::cout << initial_mass_function(1.2) << "\n";
-
-    // std::cout << "Masses Check\n";
-    // std::vector masses = generate_masses(10);
-    // for (int i = 0; i < masses.size(); i++) {
-    //     std::cout << masses[i] << " ";
-    // }
-    // std::cout << "\n";
-
-    // std::cout << "Random Sphere Check \n";
-    // std::tuple<double, double, double> randomSphere = randomSph(10);
-    // std::cout << std::get<0>(randomSphere) << " " << std::get<1>(randomSphere) << " " << std::get<2>(randomSphere) << "\n"; 
-
-    // Particle testParticle1(10, 1, 1, 1, 0, 0.2, 0);
-    // Particle testParticle2(20, 3, 0, -2, 0.4, 0, 0.1);
-    // double particle_distance = distanceCalc(testParticle1, testParticle2);
-    // std::cout << "Distance Calc Check\n" << particle_distance << "\n";
-    // std::vector<double> f = forceCalc(testParticle1,testParticle2);
-    // std::cout << "Force Calc Check\n" << f[0] << " " << f[1] << " " << f[2] << "\n";
-
-    // std::cout << "Particle Pair Check\n";
-    // create_particle_pairs();
-    // for (int i = 0; i < particlePairs.size(); i++) {
-    //     std::cout << "[" << particlePairs[i][0] << particlePairs[i][1] << "] ";
-    // }
 
     initialise_particles();
     create_particle_pairs();
 
-    InitWindow(800, 800, "Gravity Simulation");
+    int windowWidth = 1200;
+    int windowHeight = 1200;
+
+    InitWindow(windowWidth, windowHeight, "Gravity Simulation");
+
+    Camera3D camera = {};
+
+    camera.target = { 0.0f, 0.0f, 0.0f};
+    camera.up = { 0.0f, 1.0f, 0.0f};
+    camera.fovy = 45.0f;
+    camera.projection = CAMERA_PERSPECTIVE;
+
+    float cameraYaw = 0.8f;
+    float cameraPitch = 0.45f;
+    float cameraDistance = 18.0f;
 
     SetTargetFPS(60);
 
@@ -324,30 +375,66 @@ int main() {
 
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
+        float time = GetTime();
+
+        UpdateOrbitCamera(camera, cameraYaw, cameraPitch, cameraDistance);
 
         BeginDrawing();
 
         ClearBackground(BLACK);
 
+        BeginMode3D(camera);
+
+        DrawGrid(20, 1.0f);
+
+        // Big obvious test object
+        // DrawSphere(Vector3{0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
+
+        // DrawSphere({ 0.0f, 0.0f, 0.0f }, 0.25f, DARKGRAY);
+
+        DrawLine3D({ -10.0f, 0.0f, 0.0f }, { 10.0f, 0.0f, 0.0f }, RED);
+        DrawLine3D({ 0.0f, -10.0f, 0.0f }, { 0.0f, 10.0f, 0.0f }, GREEN);
+        DrawLine3D({ 0.0f, 0.0f, -10.0f }, { 0.0f, 0.0f, 10.0f }, BLUE);
 
         for (int i = 0; i < particles.size(); i++) {
             std::vector ppos = particles[i].getPos();
-            double px = ppos[0]/plotSize*800+400;
-            double py = ppos[1]/plotSize*800+400;
-            double pz = ppos[2]/plotSize*800+400;
+            float renderScale = 10.0f / plotSize;
+
+            float px = static_cast<float>(ppos[0] * renderScale);
+            float py = static_cast<float>(ppos[1] * renderScale);
+            float pz = static_cast<float>(ppos[2] * renderScale);
 
             // float circleSize = particles[i].getMass()/1.989e30; 
             float circleSize;// = std::log(particles[i].getMass())/std::log((1.989e34))*2;
             // std::cout << circleSize << "\n";
             if (particles[i].getMass() > 1e36) {
-                circleSize = 10;
+                circleSize = 0.2f;
             }
             else {
-                circleSize = 2;
+                circleSize = 0.05f;
             }
 
-            DrawCircle((int)px, (int)py, circleSize, WHITE);
+            // DrawSphere(point.position, point.sphereRadius, point.color);
+            // DrawSphere(ppos,)
+            Vector3 pposV3 = ToVector3({px,py,pz});
+            // pposV3.x = pposV3.x/plotSize*windowWidth+windowWidth/2;
+            // pposV3.y = pposV3.y/plotSize*windowWidth+windowWidth/2;
+            // pposV3.z = pposV3.z/plotSize*windowWidth+windowWidth/2;
+            Color circleColor = WHITE;
+            if (i == 0) {
+                circleColor = GREEN;
+            }
+            else if (i == particles.size()-2) {
+                circleColor = YELLOW;
+            }
+            else if (i == particles.size()-1) {
+                circleColor = RED;
+            }
+            DrawSphere(pposV3,circleSize,circleColor);
+            // DrawCircle((int)px, (int)py, circleSize, WHITE);
         }
+
+        EndMode3D();
 
         EndDrawing();
         // std::cout << particles[0].getPos()[0]/plotSize*800 << "\n";
