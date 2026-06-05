@@ -1,3 +1,5 @@
+//Compile Portable -- g++ gravsim.cpp -o gravsim.exe -I include -L lib -lraylib -lgdi32 -lwinmm -static-libgcc -static-libstdc++ -static
+
 #include <iostream>
 #include <cmath>
 #include <vector>
@@ -6,6 +8,8 @@
 #include <chrono>
 
 #include "raylib.h"
+#define RAYGUI_IMPLEMENTATION
+#include "raygui.h"
 
 const double pi = 3.141592653589793;
 const double G = 6.67430e-11;
@@ -95,7 +99,7 @@ std::tuple<double, double, double> globularVel(double x, double y, double z, dou
     //y velocity ~ 0
     double dy_dt = randomDouble(-0.2,0.2);
     //phi velocity - rotation
-    double omega = 5*sqrt(G*totalMass/(radius*radius*radius));
+    double omega = sqrt(G*totalMass/(radius*radius*radius));
     double velx = dr_dt*cos(phi)-r*omega*sin(phi);
     double vely = dy_dt;
     double velz = dr_dt*sin(phi)+r*omega*cos(phi);
@@ -111,6 +115,8 @@ std::tuple<double, double, double> globularVel(double x, double y, double z, dou
     return {velx,vely,velz};
 
 }
+
+
 
 class Particle {
 private:
@@ -160,6 +166,7 @@ public:
         posx = x;
         posy = y;
         posz = z;
+        // std::cout << "setPos called!";
     }
 
     // Getter for vel
@@ -219,6 +226,27 @@ double plotSize = 2e15;
 double totalMass = 0;
 std::vector<std::vector<int>> particlePairs;
 
+double enclosedMass(Particle &particle) {
+    std::vector<double> ppos = particle.getPos();
+    double x = ppos[0];
+    double y = ppos[1];
+    double z = ppos[2];
+    double radius = pythagoras(x,y,z);
+    double mass = 0;
+    for (int p = 0; p < particles.size(); p++) {
+        std::vector<double> currentPos = particles[p].getPos();
+        double cx = currentPos[0];
+        double cy = currentPos[1];
+        double cz = currentPos[2];
+        double currentRadius = pythagoras(cx,cy,cz);
+        if (currentRadius < radius) {
+            mass += particles[p].getMass();
+        }
+    }
+    return mass;
+}
+
+
 void initialise_particles() {
     std::vector<double> masses = generate_masses(particleN);
     // double totalMass = 0;
@@ -232,7 +260,7 @@ void initialise_particles() {
         double ypos = std::get<1>(pos);
         double zpos = std::get<2>(pos);
         
-        std::tuple<double,double,double> vel = globularVel(xpos,ypos,zpos,totalMass);
+        std::tuple<double,double,double> vel = globularVel(xpos,ypos,zpos, totalMass);
         double xvel = std::get<0>(vel);
         double yvel = std::get<1>(vel);
         double zvel = std::get<2>(vel);
@@ -241,7 +269,23 @@ void initialise_particles() {
     }
     particles.push_back(Particle(5e38, 0, 0, 0, 0, 0, 0));
     particles.push_back(Particle(5e38, 1e16, 0, 1e16, -7e6, 5e4, -6e6));
+    for (int i = 0; i < particleN; i++) {
+        double encMass = enclosedMass(particles[i]);
+        std::vector<double> currentPos = particles[i].getPos();
+        double xpos = currentPos[0];
+        double ypos = currentPos[1];
+        double zpos = currentPos[2];
+
+        std::tuple<double,double,double> vel = globularVel(xpos,ypos,zpos,encMass);
+        double xvel = std::get<0>(vel);
+        double yvel = std::get<1>(vel);
+        double zvel = std::get<2>(vel);
+
+        particles[i].setVel(xvel,yvel,zvel);
+    }
 }
+
+
 
 void create_particle_pairs() {
     for (int i = 0; i < particles.size(); i++) {
@@ -305,7 +349,7 @@ void UpdateOrbitCamera(Camera3D& camera, float& yaw, float& pitch, float& distan
     if (IsMouseButtonDown(MOUSE_BUTTON_LEFT))
     {
         yaw -= mouseDelta.x * 0.01f;
-        pitch -= mouseDelta.y * 0.01f;
+        pitch += mouseDelta.y * 0.01f;
     }
 
     // Limit the pitch so the camera does not flip upside down.
@@ -339,6 +383,36 @@ void UpdateOrbitCamera(Camera3D& camera, float& yaw, float& pitch, float& distan
     camera.position.z = camera.target.z + distance * cosf(pitch) * cosf(yaw);
 }
 
+void UpdateParticlePos(Particle &particle) {
+    std::vector<double> ppos = particle.getPos();
+    double x = ppos[0];
+    double y = ppos[1];
+    double z = ppos[2];
+    bool changed = false;
+    if (IsKeyDown(KEY_S)) {
+        x = x + plotSize/120;
+        changed = true;
+    }
+    if (IsKeyDown(KEY_W)) {
+        x = x - plotSize/120;
+        changed = true;
+    }
+    if (IsKeyDown(KEY_D)) {
+        z = z - plotSize/120;
+        changed = true;
+    }
+    if (IsKeyDown(KEY_A)) {
+        z = z + plotSize/120;
+        changed = true;
+    }
+
+    //...The rest
+    if (changed) {
+        particle.setPos(x,y,z);
+    }
+
+}
+
 Vector3 ToVector3(const std::vector<double>& values)
 {
     return Vector3{
@@ -350,8 +424,40 @@ Vector3 ToVector3(const std::vector<double>& values)
 
 int main() {
 
+    InitWindow(500, 300, "Gravity Simulation Settings");
+    SetTargetFPS(60);
+
+    bool startPressed = false;
+    while (!WindowShouldClose() && !startPressed) {
+        BeginDrawing();
+
+        ClearBackground(RAYWHITE);
+
+        DrawText("Settings for Gravity Simulation", 40, 40, 24, BLACK);
+
+        float particleSlider = particleN;
+
+        GuiSlider(Rectangle{40, 100, 300, 20}, "20", "400", &particleSlider, 20, 400);
+
+        particleN = static_cast<int>(roundf(particleSlider));
+
+        DrawText(TextFormat("Total Particles: %i", particleN), 40, 140, 20, DARKGRAY);
+
+        if (GuiButton(Rectangle{40, 190, 140, 35}, "Start")) {
+            startPressed = true;
+            }
+
+        EndDrawing();
+    }
+
+    CloseWindow;
+
+
+
+
     initialise_particles();
     create_particle_pairs();
+    // momentum_centre();
 
     int windowWidth = 1200;
     int windowHeight = 1200;
@@ -379,6 +485,8 @@ int main() {
 
         UpdateOrbitCamera(camera, cameraYaw, cameraPitch, cameraDistance);
 
+        UpdateParticlePos(particles[particles.size()-2]);
+
         BeginDrawing();
 
         ClearBackground(BLACK);
@@ -387,10 +495,6 @@ int main() {
 
         DrawGrid(20, 1.0f);
 
-        // Big obvious test object
-        // DrawSphere(Vector3{0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
-
-        // DrawSphere({ 0.0f, 0.0f, 0.0f }, 0.25f, DARKGRAY);
 
         DrawLine3D({ -10.0f, 0.0f, 0.0f }, { 10.0f, 0.0f, 0.0f }, RED);
         DrawLine3D({ 0.0f, -10.0f, 0.0f }, { 0.0f, 10.0f, 0.0f }, GREEN);
@@ -439,6 +543,7 @@ int main() {
         EndDrawing();
         // std::cout << particles[0].getPos()[0]/plotSize*800 << "\n";
         update();
+
 
     }
 
