@@ -1,5 +1,6 @@
 //Compile Portable -- g++ gravsim.cpp -o gravsim.exe -I include -L lib -lraylib -lgdi32 -lwinmm -static-libgcc -static-libstdc++ -static
 //2 -- g++ gravsim.cpp -o gravsim.exe -I include -L lib -static -static-libgcc -static-libstdc++ -lraylib -lopengl32 -lgdi32 -lwinmm
+//3 Optimised g++ -O2 gravsim.cpp -o gravsim.exe -I include -L lib -lraylib -lgdi32 -lwinmm -static-libgcc -static-libstdc++ -static
 
 #include <iostream>
 #include <cmath>
@@ -11,19 +12,35 @@
 #include "raylib.h"
 #define RAYGUI_IMPLEMENTATION
 #include "raygui.h"
+#include "raymath.h"
 
 const double pi = 3.141592653589793;
 const double G = 6.67430e-11;
 const double epsilon = 5e13;
+const double M0 = 1.989e30;
 
+//Initialise random generator
+// std::mt19937 gen(3);
+std::random_device rd;
+std::mt19937 gen(rd());
+
+//Generate a random double between min, max
 double randomDouble(double min, double max) {
-    // std::mt19937 gen(3);
-    std::random_device rd;
-    std::mt19937 gen(rd());
     std::uniform_real_distribution<double> dist(min, max);
     return dist(gen);
 }
 
+//Convert a 3 value vector to Raylib's Vector3
+Vector3 ToVector3(const std::vector<double>& values)
+{
+    return Vector3{
+        static_cast<float>(values[0]),
+        static_cast<float>(values[1]),
+        static_cast<float>(values[2])
+    };
+}
+
+//Kroupa 2002 IMF 
 double initial_mass_function(double m) {
     if (m < 0.08) {
         return 0.0;
@@ -39,10 +56,9 @@ double initial_mass_function(double m) {
     }
 }
 
+//Generate N masses according to IMF
 std::vector<double> generate_masses(int N) {
     std::vector<double> masses(N);
-    // std::uniform_real_distribution<double> x_candidates(0.0, 20.0);
-    // std::uniform_real_distribution<double> y_candidates(0.0, 1.0);
     for (int i = 0; i < masses.size(); i++) {
         double mass_candidate = 0.0;
         while (mass_candidate == 0.0) {
@@ -54,13 +70,14 @@ std::vector<double> generate_masses(int N) {
                 mass_candidate = x_candidate;
             }
         }
-        masses[i] = 3e4*1.989e30*mass_candidate;
+        masses[i] = 3e4*M0*mass_candidate;
     }
     return masses;
 }
 
+
+// Generate position of individual particle within sphere* of maxRad
 std::tuple<double, double, double> randomSph(double maxRad) {
-    // double rho = randomDouble(0.0,maxRad);
     double rho = randomDouble(maxRad/20,maxRad);
     double theta = randomDouble(0.0,pi);
     double phi = randomDouble(0.0, 2*pi);
@@ -70,11 +87,13 @@ std::tuple<double, double, double> randomSph(double maxRad) {
     return {x, y, z};
 }
 
+//Compute the magnitude of a 3D vector
 double pythagoras(double x, double y, double z) {
     double r = sqrt(x*x+y*y+z*z);
     return r;
 }
 
+//Compute the velocity of a particle at x,y,z
 std::tuple<double, double, double> globularVel(double x, double y, double z, double totalMass) {
     double velScale;
     double radius = pythagoras(x,y,z);
@@ -111,17 +130,14 @@ std::tuple<double, double, double> globularVel(double x, double y, double z, dou
     // vely = vely/mag*velScale;
     // velz = velz/mag*velScale;
 
-    // std::cout << velx << " " << vely << " " << velz << "\n";
-
     return {velx,vely,velz};
 
 }
 
 
-
+//Particle Class
 class Particle {
 private:
-    // Private member variables
     double mass;
     double posx;
     double posy;
@@ -129,40 +145,57 @@ private:
     double velx;
     double vely;
     double velz;
-    double pvelx;
+    double pvelx; //Previous velocity -- Currently unused
     double pvely;
     double pvelz;
-    std::vector<double> force = {0,0,0};
+    std::vector<double> force = {0,0,0};  
 
 public:
+    std::vector<Vector3> trail;
     // Constructor
     Particle(double mass, double posx, double posy, double posz, double velx, double vely, double velz)
         : mass(mass), posx(posx), posy(posy), posz(posz), velx(velx), vely(vely), velz(velz), pvelx(velx), pvely(vely), pvelz(velz) {
     }
 
-    double getMass() {
-        return mass;
-    }
-
-    void resetForce() {
-        force = {0,0,0};
-    }
-
-    void setMass(double newMass) {
-        mass = newMass;
-    }
-
+    // Add (or subtract) force from total force acting on particle
     void addForce(std::vector<double> fnew, int sign = 1) {
         force[0]=force[0]+sign*fnew[0];
         force[1]=force[1]+sign*fnew[1];
         force[2]=force[2]+sign*fnew[2];
     }
 
+    // Calculate the new position
+    void calcPos(double dt) {
+        posx = posx + velx * dt;
+        posy = posy + vely * dt;
+        posz = posz + velz * dt;
+    }
+
+    // Calculate the new velocity
+    void calcVel(double dt) {
+        velx = velx + force[0] * dt / mass;
+        vely = vely + force[1] * dt / mass;
+        velz = velz + force[2] * dt / mass;
+    }
+
+    // Reset force vector to 0
+    void resetForce() {
+        force = {0,0,0};
+    }
+
+    //GETTERS/SETTERS
+    double getMass() {
+        return mass;
+    }
+
+    void setMass(double newMass) {
+        mass = newMass;
+    }
+
     std::vector<double> getForce() {
         return force;
     }
 
-    // Getter for pos
     std::vector<double> getPos() {
         return {posx,posy,posz};
     }
@@ -171,10 +204,8 @@ public:
         posx = x;
         posy = y;
         posz = z;
-        // std::cout << "setPos called!";
     }
 
-    // Getter for vel
     std::vector<double> getVel() {
         return {velx, vely, velz};
     }
@@ -184,33 +215,28 @@ public:
         vely = y;
         velz = z;
     }
-
-    void calcPos(double dt) {
-        posx = posx + velx * dt;
-        posy = posy + vely * dt;
-        posz = posz + velz * dt;
-    }
-
-    void calcVel(double dt) {
-        velx = velx + force[0] * dt / mass;
-        vely = vely + force[1] * dt / mass;
-        velz = velz + force[2] * dt / mass;
-    }
 };
 
+// Calculate the distance between two particles
 double distanceCalc(Particle &p1, Particle &p2) {
-    double distance = sqrt(pow(p1.getPos()[0]-p2.getPos()[0],2)+pow(p1.getPos()[1]-p2.getPos()[1],2)+pow(p1.getPos()[2]-p2.getPos()[2],2));
+    std::vector<double> pos1 = p1.getPos();
+    std::vector<double> pos2 = p2.getPos();
+    double dx = (pos1[0]-pos2[0]);
+    double dy = (pos1[1]-pos2[1]);
+    double dz = (pos1[2]-pos2[2]);
+
+    double distance = pythagoras(dx,dy,dz);
+
     return distance;
 }
 
+// Calculate the force between two particles
 std::vector<double> forceCalc(Particle &p1, Particle &p2) {
     double distance = distanceCalc(p1,p2);
     double mass1 = p1.getMass();
     double mass2 = p2.getMass();
     std::vector<double> pos1 = p1.getPos();
     std::vector<double> pos2 = p2.getPos();
-    // std::vector<double> vel1 = p1.getVel();
-    // std::vector<double> vel2 = p2.getVel();
 
     double forcex = -G*mass1*mass2*(pos1[0]-pos2[0])/pow((distance*distance)+(epsilon*epsilon),1.5);
     double forcey = -G*mass1*mass2*(pos1[1]-pos2[1])/pow((distance*distance)+(epsilon*epsilon),1.5);
@@ -219,18 +245,24 @@ std::vector<double> forceCalc(Particle &p1, Particle &p2) {
     return {forcex,forcey,forcez};
 }
 
-double timestep = 0.5*10*24*60*60;
-double runtime = 100*365.25*24*60*60;
+//Simulation Parameters
+double timestep = 0.5*10*24*60*60; //s
+double runtime = 100*365.25*24*60*60; //s
 int frame = 0;
 int frames = 10;
 std::vector<double> times;
 double currentTime = 0.0;
 std::vector<Particle> particles;
 int particleN = 300;
-double plotSize = 2e15;
-double totalMass = 0;
+double plotSize = 2e15; //m
+double totalMass = 0; //kg
 std::vector<std::vector<int>> particlePairs;
+double maxMass = 0;
+double minMass = 1e64;
+int maxTrailLength = 10;
 
+
+//Calculate total mass within the radius of a particle
 double enclosedMass(Particle &particle) {
     std::vector<double> ppos = particle.getPos();
     double x = ppos[0];
@@ -251,14 +283,13 @@ double enclosedMass(Particle &particle) {
     return mass;
 }
 
-
+//Create all particle objects
 void initialise_particles() {
     std::vector<double> masses = generate_masses(particleN);
-    // double totalMass = 0;
     for (int i = 0; i < particleN; i++) {
         totalMass = totalMass + masses[i];
     }
-    // std::cout << "Total Mass: " << totalMass;
+
     for (int i = 0; i < particleN; i++) {
         std::tuple<double, double, double> pos = randomSph(plotSize/2);
         double xpos = std::get<0>(pos);
@@ -288,10 +319,18 @@ void initialise_particles() {
 
         particles[i].setVel(xvel,yvel,zvel);
     }
+    for (int i = 0; i < particles.size(); i++) {
+        if (particles[i].getMass() > maxMass) {
+            maxMass = particles[i].getMass();
+        }
+        else if (particles[i].getMass() < minMass) {
+            minMass = particles[i].getMass();
+        }
+    }
 }
 
 
-
+// Create list containing the indices of each pair of particles
 void create_particle_pairs() {
     for (int i = 0; i < particles.size(); i++) {
         for (int j = i+1; j < particles.size(); j++) {
@@ -301,6 +340,7 @@ void create_particle_pairs() {
     }
 }
 
+//Calculate the centre of momentum for the initial system - should produce a simulation that remains centred on origin
 void momentum_centre() {
     std::vector<double> totalMomentum = {0,0,0};
     std::vector<double> CoM0 = {0,0,0};
@@ -309,8 +349,8 @@ void momentum_centre() {
         CoM0[1] = CoM0[1] + particles[i].getPos()[1] * particles[i].getMass();
         CoM0[2] = CoM0[2] + particles[i].getPos()[2] * particles[i].getMass();
         totalMomentum[0] = totalMomentum[0] + particles[i].getMass()*particles[i].getVel()[0];
-        totalMomentum[0] = totalMomentum[1] + particles[i].getMass()*particles[i].getVel()[1];
-        totalMomentum[0] = totalMomentum[2] + particles[i].getMass()*particles[i].getVel()[2];
+        totalMomentum[1] = totalMomentum[1] + particles[i].getMass()*particles[i].getVel()[1];
+        totalMomentum[2] = totalMomentum[2] + particles[i].getMass()*particles[i].getVel()[2];
     }
     CoM0[0] = CoM0[0] / totalMass;
     CoM0[1] = CoM0[1] / totalMass;
@@ -329,14 +369,11 @@ void momentum_centre() {
     }
 }
 
+//Update the simulation for each timestep
 void update() {
-    std::vector<std::vector<double>> forces;
     for (int p = 0; p < particlePairs.size(); p++) {
         std::vector<double> force = forceCalc(particles[particlePairs[p][0]],particles[particlePairs[p][1]]);
-        // double forcex = force[0];
-        // double forcey = force[1];
-        // double forcez = force[2];
-        forces.push_back(force);
+
         particles[particlePairs[p][0]].addForce(force);
         particles[particlePairs[p][1]].addForce(force, -1);
     }
@@ -344,9 +381,25 @@ void update() {
         particles[i].calcPos(timestep);
         particles[i].calcVel(timestep);
         particles[i].resetForce();
+
+        std::vector<double> pos = particles[i].getPos();
+        float renderScale = 10.0f / plotSize;
+
+        Vector3 trailPoint = {
+            static_cast<float>(pos[0] * renderScale),
+            static_cast<float>(pos[1] * renderScale),
+            static_cast<float>(pos[2] * renderScale)
+        };
+
+        particles[i].trail.push_back(trailPoint);
+
+        if (particles[i].trail.size() > maxTrailLength) {
+            particles[i].trail.erase(particles[i].trail.begin());
+        }
     }
 }
 
+//Enable user control of camera view (zoom and rotate)
 void UpdateOrbitCamera(Camera3D& camera, float& yaw, float& pitch, float& distance)
 {
     Vector2 mouseDelta = GetMouseDelta();
@@ -388,6 +441,7 @@ void UpdateOrbitCamera(Camera3D& camera, float& yaw, float& pitch, float& distan
     camera.position.z = camera.target.z + distance * cosf(pitch) * cosf(yaw);
 }
 
+//Allow the user to move a particle mid-simulation with WASD
 void UpdateParticlePos(Particle &particle) {
     std::vector<double> ppos = particle.getPos();
     double x = ppos[0];
@@ -411,13 +465,13 @@ void UpdateParticlePos(Particle &particle) {
         changed = true;
     }
 
-    //...The rest
     if (changed) {
         particle.setPos(x,y,z);
     }
 
 }
 
+//Allow the user the change the mass of a particle with R/F
 void UpdateParticleMass(Particle &particle) {
     double mass = particle.getMass();
 
@@ -431,17 +485,38 @@ void UpdateParticleMass(Particle &particle) {
     particle.setMass(mass);
 }
 
-Vector3 ToVector3(const std::vector<double>& values)
-{
-    return Vector3{
-        static_cast<float>(values[0]),
-        static_cast<float>(values[1]),
-        static_cast<float>(values[2])
-    };
+// Calculate animation sphere size
+float GetVisualRadius(double mass) {
+    float averageMass = (totalMass/particles.size());
+
+    float minRadius = 0.01f;
+    float maxRadius = 0.4f;
+
+    double logMin = std::log10(minMass);
+    double logMax = std::log10(maxMass);
+    double logMass = std::log10(mass);
+
+    float t = static_cast<float>((logMass - logMin) / (logMax - logMin));
+
+    t = Clamp(t, 0.0f, 1.0f);
+
+    t = std::pow(t, 1.4f); // Exponent = contrast better small/large mass
+
+    // float radius = 0.1f + 0.05f * log10(mass/averageMass) / log10(maxMass/averageMass);
+
+    // return Clamp(radius, 0.01f, 0.5f);
+    return minRadius + t * (maxRadius-minRadius);
+}
+
+void DrawTrail(const Particle &particle) {
+    for (int i = 1; i < particle.trail.size(); i++) {
+        DrawLine3D(particle.trail[i-1], particle.trail[i], WHITE);
+    }
 }
 
 int main() {
 
+    //Open Settings GUI
     InitWindow(500, 300, "Gravity Simulation Settings");
     SetTargetFPS(60);
 
@@ -470,11 +545,6 @@ int main() {
 
         DrawText(TextFormat("Cluster Size: 10^%.1fm", plotSizeSlider), 40, 190, 20, DARKGRAY);
 
-
-
-
-
-
         if (GuiButton(Rectangle{40, 250, 140, 35}, "Start")) {
             startPressed = true;
             }
@@ -482,11 +552,11 @@ int main() {
         EndDrawing();
     }
 
-    CloseWindow;
+    CloseWindow();
 
 
 
-
+    //Start Simulation
     initialise_particles();
     create_particle_pairs();
     // momentum_centre();
@@ -509,7 +579,6 @@ int main() {
 
     SetTargetFPS(60);
 
-    // std::cout << "Total Mass" << totalMass;
 
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
@@ -544,19 +613,16 @@ int main() {
 
             // float circleSize = particles[i].getMass()/1.989e30; 
             float circleSize;// = std::log(particles[i].getMass())/std::log((1.989e34))*2;
-            // std::cout << circleSize << "\n";
-            circleSize = 0.3f * cbrt(particles[i].getMass()/totalMass);
+            // circleSize = 0.3f * cbrt(particles[i].getMass()/totalMass);
+            circleSize = GetVisualRadius(particles[i].getMass());
 
-            if (particles[i].getMass() > 1e37) {
-                circleSize = 0.4f;
-            }
+            // if (particles[i].getMass() > 1e37) {
+            //     circleSize = 0.4f;
+            // }
 
-            // DrawSphere(point.position, point.sphereRadius, point.color);
-            // DrawSphere(ppos,)
+
             Vector3 pposV3 = ToVector3({px,py,pz});
-            // pposV3.x = pposV3.x/plotSize*windowWidth+windowWidth/2;
-            // pposV3.y = pposV3.y/plotSize*windowWidth+windowWidth/2;
-            // pposV3.z = pposV3.z/plotSize*windowWidth+windowWidth/2;
+
             Color circleColor = WHITE;
             if (i == 0) {
                 circleColor = GREEN;
@@ -567,25 +633,18 @@ int main() {
             else if (i == particles.size()-1) {
                 circleColor = RED;
             }
+            DrawTrail(particles[i]);
             DrawSphere(pposV3,circleSize,circleColor);
-            // DrawCircle((int)px, (int)py, circleSize, WHITE);
         }
 
         EndMode3D();
 
         EndDrawing();
-        // std::cout << particles[0].getPos()[0]/plotSize*800 << "\n";
         update();
 
 
     }
 
     CloseWindow();
-    // while (frame < frames) {
-    //     std::cout << particles[0].getPos()[0] << "\n";
-    //     update();
-    //     frame++;
-    //     std::this_thread::sleep_for(std::chrono::seconds(1));
-    // }
 
 }
