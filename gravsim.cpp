@@ -1,4 +1,5 @@
 //Compile Portable -- g++ gravsim.cpp -o gravsim.exe -I include -L lib -lraylib -lgdi32 -lwinmm -static-libgcc -static-libstdc++ -static
+//2 -- g++ gravsim.cpp -o gravsim.exe -I include -L lib -static -static-libgcc -static-libstdc++ -lraylib -lopengl32 -lgdi32 -lwinmm
 
 #include <iostream>
 #include <cmath>
@@ -145,6 +146,10 @@ public:
 
     void resetForce() {
         force = {0,0,0};
+    }
+
+    void setMass(double newMass) {
+        mass = newMass;
     }
 
     void addForce(std::vector<double> fnew, int sign = 1) {
@@ -413,6 +418,19 @@ void UpdateParticlePos(Particle &particle) {
 
 }
 
+void UpdateParticleMass(Particle &particle) {
+    double mass = particle.getMass();
+
+    if (IsKeyDown(KEY_R)) {
+        mass *= 1.05;
+    }
+    if (IsKeyDown(KEY_F)) {
+        mass *= 0.95;
+    }
+
+    particle.setMass(mass);
+}
+
 Vector3 ToVector3(const std::vector<double>& values)
 {
     return Vector3{
@@ -441,9 +459,23 @@ int main() {
 
         particleN = static_cast<int>(roundf(particleSlider));
 
-        DrawText(TextFormat("Total Particles: %i", particleN), 40, 140, 20, DARKGRAY);
+        DrawText(TextFormat("Total Particles: %i", particleN), 40, 130, 20, DARKGRAY);
 
-        if (GuiButton(Rectangle{40, 190, 140, 35}, "Start")) {
+
+        float plotSizeSlider = std::log10(plotSize);
+
+        GuiSlider(Rectangle{40, 160, 300, 20}, "1e13", "1e17", &plotSizeSlider, std::log10(1e13f), std::log10(1e17f));
+
+        plotSize = pow(10,plotSizeSlider);
+
+        DrawText(TextFormat("Cluster Size: 10^%.1fm", plotSizeSlider), 40, 190, 20, DARKGRAY);
+
+
+
+
+
+
+        if (GuiButton(Rectangle{40, 250, 140, 35}, "Start")) {
             startPressed = true;
             }
 
@@ -487,6 +519,8 @@ int main() {
 
         UpdateParticlePos(particles[particles.size()-2]);
 
+        UpdateParticleMass(particles[particles.size()-2]);
+
         BeginDrawing();
 
         ClearBackground(BLACK);
@@ -511,11 +545,10 @@ int main() {
             // float circleSize = particles[i].getMass()/1.989e30; 
             float circleSize;// = std::log(particles[i].getMass())/std::log((1.989e34))*2;
             // std::cout << circleSize << "\n";
-            if (particles[i].getMass() > 1e36) {
-                circleSize = 0.2f;
-            }
-            else {
-                circleSize = 0.05f;
+            circleSize = 0.3f * cbrt(particles[i].getMass()/totalMass);
+
+            if (particles[i].getMass() > 1e37) {
+                circleSize = 0.4f;
             }
 
             // DrawSphere(point.position, point.sphereRadius, point.color);
