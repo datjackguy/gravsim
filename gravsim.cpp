@@ -18,6 +18,7 @@ const double pi = 3.141592653589793;
 const double G = 6.67430e-11;
 const double epsilon = 5e13;
 const double M0 = 1.989e30;
+bool enableCentralMass = true;
 
 //Initialise random generator
 // std::mt19937 gen(3);
@@ -30,6 +31,12 @@ double randomDouble(double min, double max) {
     return dist(gen);
 }
 
+//Generate a random integer between min, max
+double randomInteger(int min, int max) {
+    std::uniform_int_distribution<int> dist(min, max);
+    return dist(gen);
+}
+
 //Convert a 3 value vector to Raylib's Vector3
 Vector3 ToVector3(const std::vector<double>& values)
 {
@@ -38,6 +45,12 @@ Vector3 ToVector3(const std::vector<double>& values)
         static_cast<float>(values[1]),
         static_cast<float>(values[2])
     };
+}
+
+//Compute the magnitude of a 3D vector
+double pythagoras(double x, double y, double z) {
+    double r = sqrt(x*x+y*y+z*z);
+    return r;
 }
 
 //Kroupa 2002 IMF 
@@ -87,11 +100,7 @@ std::tuple<double, double, double> randomSph(double maxRad) {
     return {x, y, z};
 }
 
-//Compute the magnitude of a 3D vector
-double pythagoras(double x, double y, double z) {
-    double r = sqrt(x*x+y*y+z*z);
-    return r;
-}
+
 
 //Compute the velocity of a particle at x,y,z
 std::tuple<double, double, double> globularVel(double x, double y, double z, double totalMass) {
@@ -148,7 +157,8 @@ private:
     double pvelx; //Previous velocity -- Currently unused
     double pvely;
     double pvelz;
-    std::vector<double> force = {0,0,0};  
+    std::vector<double> force = {0,0,0};
+    Color colour = WHITE;
 
 public:
     std::vector<Vector3> trail;
@@ -184,6 +194,14 @@ public:
     }
 
     //GETTERS/SETTERS
+    void setColour(Color newColour) {
+        colour = newColour;
+    }
+
+    Color getColour() const {
+        return colour;
+    }
+
     double getMass() {
         return mass;
     }
@@ -217,7 +235,7 @@ public:
     }
 };
 
-// Calculate the distance between two particles
+// Calculate the distance between two particles - Move to particle class?
 double distanceCalc(Particle &p1, Particle &p2) {
     std::vector<double> pos1 = p1.getPos();
     std::vector<double> pos2 = p2.getPos();
@@ -230,7 +248,7 @@ double distanceCalc(Particle &p1, Particle &p2) {
     return distance;
 }
 
-// Calculate the force between two particles
+// Calculate the force between two particles - Move to particle class?
 std::vector<double> forceCalc(Particle &p1, Particle &p2) {
     double distance = distanceCalc(p1,p2);
     double mass1 = p1.getMass();
@@ -259,7 +277,14 @@ double totalMass = 0; //kg
 std::vector<std::vector<int>> particlePairs;
 double maxMass = 0;
 double minMass = 1e64;
-int maxTrailLength = 10;
+int maxTrailLength = 20;
+std::vector<Color> colourList = {RED,GREEN,BLUE,ORANGE,PURPLE,GREEN,MAGENTA,SKYBLUE};
+bool randomColours = false;
+
+Color randomColour() {
+    int colouri = randomInteger(0,colourList.size()-1);
+    return colourList[colouri];
+}
 
 
 //Calculate total mass within the radius of a particle
@@ -303,8 +328,10 @@ void initialise_particles() {
 
         particles.push_back(Particle(masses[i],xpos,ypos,zpos,xvel,yvel,zvel));
     }
-    particles.push_back(Particle(5e38, 0, 0, 0, 0, 0, 0));
-    particles.push_back(Particle(5e38, 1e16, 0, 1e16, -7e6, 5e4, -6e6));
+    if (enableCentralMass) {
+        particles.push_back(Particle(5e38, 0, 0, 0, 0, 0, 0));
+    }
+    // particles.push_back(Particle(5e38, 1e16, 0, 1e16, -7e6, 5e4, -6e6));
     for (int i = 0; i < particleN; i++) {
         double encMass = enclosedMass(particles[i]);
         std::vector<double> currentPos = particles[i].getPos();
@@ -399,6 +426,7 @@ void update() {
     }
 }
 
+// Drawing Functions -----
 //Enable user control of camera view (zoom and rotate)
 void UpdateOrbitCamera(Camera3D& camera, float& yaw, float& pitch, float& distance)
 {
@@ -487,6 +515,9 @@ void UpdateParticleMass(Particle &particle) {
 
 // Calculate animation sphere size
 float GetVisualRadius(double mass) {
+
+    //Change to median!!!?
+
     float averageMass = (totalMass/particles.size());
 
     float minRadius = 0.01f;
@@ -510,16 +541,86 @@ float GetVisualRadius(double mass) {
 
 void DrawTrail(const Particle &particle) {
     for (int i = 1; i < particle.trail.size(); i++) {
-        DrawLine3D(particle.trail[i-1], particle.trail[i], WHITE);
+        DrawLine3D(particle.trail[i-1], particle.trail[i], particle.getColour());
     }
 }
 
-int main() {
+class IntSlider {
+private:
+    std::string name;
+    std::string lowLimitStr;
+    std::string highLimitStr;
+    std::string sliderText;
+    float lowLimit;
+    float highLimit;
+    float sliderValue;
+    // int pos;
+    int* outputValue;
+public:
+    int height = 120;
 
+    IntSlider(int &value, std::string lowLimitStr, std::string highLimitStr, float lowLimit, float highLimit, std::string sliderText) :
+        outputValue(&value), lowLimitStr(lowLimitStr), highLimitStr(highLimitStr), lowLimit(lowLimit), highLimit(highLimit), sliderText(sliderText)  {
+
+    }
+
+    void draw(float yposition) {
+        float sliderValue = static_cast<float>(*outputValue);
+
+        //Draw slider - set position and limits
+        GuiSlider(Rectangle{40, yposition, 300, 20}, lowLimitStr.c_str(), highLimitStr.c_str(), &sliderValue, static_cast<float>(lowLimit), static_cast<float>(highLimit));
+
+        // //Set public value to slider value
+        *outputValue = static_cast<int>(roundf(sliderValue));
+        *outputValue = Clamp(*outputValue, lowLimit, highLimit);
+
+        //Draw slider text
+        DrawText(TextFormat("%s: %i", sliderText.c_str(), *outputValue), 40, yposition+30, 20, DARKGRAY);
+
+
+    }
+};
+
+class Tickbox {
+private:
+    std::string name;
+    std::string tickboxText;
+    bool ticked;
+    // int pos;
+    bool* outputValue;
+public:
+    int height = 120;
+
+    Tickbox(bool &value, std::string tickboxText) :
+        outputValue(&value), tickboxText(tickboxText)  {
+
+    }
+
+    void draw(float yposition) {
+        bool ticked = *outputValue;
+
+        //Draw slider - set position and limits
+        // GuiSlider(Rectangle{40, yposition, 300, 20}, lowLimitStr.c_str(), highLimitStr.c_str(), &sliderValue, static_cast<float>(lowLimit), static_cast<float>(highLimit));
+        GuiCheckBox(Rectangle{40, yposition, 20, 20}, TextFormat("%s", tickboxText.c_str()), &ticked);
+
+        // //Set public value to slider value
+        *outputValue = ticked;
+
+
+    }
+};
+
+bool drawTrails = true;
+
+
+void OpenSetupGUI() {
     //Open Settings GUI
-    InitWindow(500, 300, "Gravity Simulation Settings");
+    InitWindow(500, 500, "Gravity Simulation Settings");
     SetTargetFPS(60);
 
+    IntSlider nSlider = IntSlider(particleN, "20", "400", 20, 400, "Total Particles");
+    IntSlider trailSlider = IntSlider(maxTrailLength, "1", "100", 0.0f, 100.0f, "Trail Length");
+    Tickbox centralMassTick = Tickbox(enableCentralMass, "Central Mass");
     bool startPressed = false;
     while (!WindowShouldClose() && !startPressed) {
         BeginDrawing();
@@ -528,13 +629,15 @@ int main() {
 
         DrawText("Settings for Gravity Simulation", 40, 40, 24, BLACK);
 
-        float particleSlider = particleN;
+        // float particleSlider = particleN;
 
-        GuiSlider(Rectangle{40, 100, 300, 20}, "20", "400", &particleSlider, 20, 400);
+        // GuiSlider(Rectangle{40, 100, 300, 20}, "20", "400", &particleSlider, 20, 400);
 
-        particleN = static_cast<int>(roundf(particleSlider));
+        // particleN = static_cast<int>(roundf(particleSlider));
 
-        DrawText(TextFormat("Total Particles: %i", particleN), 40, 130, 20, DARKGRAY);
+        // DrawText(TextFormat("Total Particles: %i", particleN), 40, 130, 20, DARKGRAY);
+        nSlider.draw(100);
+
 
 
         float plotSizeSlider = std::log10(plotSize);
@@ -545,7 +648,16 @@ int main() {
 
         DrawText(TextFormat("Cluster Size: 10^%.1fm", plotSizeSlider), 40, 190, 20, DARKGRAY);
 
-        if (GuiButton(Rectangle{40, 250, 140, 35}, "Start")) {
+
+        GuiCheckBox(Rectangle{40, 230, 20, 20}, "Enable Trails", &drawTrails);
+
+        trailSlider.draw(260);
+
+        GuiCheckBox(Rectangle{40, 320, 20, 20}, "Random Colours", &randomColours);
+
+        centralMassTick.draw(360);
+
+        if (GuiButton(Rectangle{40, 400, 140, 35}, "Start")) {
             startPressed = true;
             }
 
@@ -553,13 +665,25 @@ int main() {
     }
 
     CloseWindow();
+}
 
 
+int main() {
+
+    OpenSetupGUI();
 
     //Start Simulation
     initialise_particles();
     create_particle_pairs();
     // momentum_centre();
+
+    if (randomColours) {
+        for (int i = 0; i < particles.size(); i++) {
+            Color colour = randomColour();
+            particles[i].setColour(colour);
+        }
+    }
+    particles[particles.size()-1].setColour(YELLOW);
 
     int windowWidth = 1200;
     int windowHeight = 1200;
@@ -619,21 +743,21 @@ int main() {
             // if (particles[i].getMass() > 1e37) {
             //     circleSize = 0.4f;
             // }
-
-
             Vector3 pposV3 = ToVector3({px,py,pz});
 
-            Color circleColor = WHITE;
+            Color circleColor = particles[i].getColour();
             if (i == 0) {
                 circleColor = GREEN;
             }
-            else if (i == particles.size()-2) {
+            else if (i == particles.size()-1) {
                 circleColor = YELLOW;
             }
-            else if (i == particles.size()-1) {
-                circleColor = RED;
+            // else if (i == particles.size()-1) {
+            //     circleColor = RED;
+            // }
+            if (drawTrails) {
+                DrawTrail(particles[i]);
             }
-            DrawTrail(particles[i]);
             DrawSphere(pposV3,circleSize,circleColor);
         }
 
@@ -641,8 +765,6 @@ int main() {
 
         EndDrawing();
         update();
-
-
     }
 
     CloseWindow();
