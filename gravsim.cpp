@@ -557,7 +557,7 @@ private:
     // int pos;
     int* outputValue;
 public:
-    int height = 120;
+    int height = 60;
 
     IntSlider(int &value, std::string lowLimitStr, std::string highLimitStr, float lowLimit, float highLimit, std::string sliderText) :
         outputValue(&value), lowLimitStr(lowLimitStr), highLimitStr(highLimitStr), lowLimit(lowLimit), highLimit(highLimit), sliderText(sliderText)  {
@@ -581,6 +581,49 @@ public:
     }
 };
 
+class LogSlider {
+private:
+    std::string name;
+    std::string lowLimitStr;
+    std::string highLimitStr;
+    std::string sliderText;
+    float lowLimit;
+    float highLimit;
+    float sliderValue;
+    // int pos;
+    double* outputValue;
+public:
+    int height = 60;
+
+    LogSlider(double &value, std::string lowLimitStr, std::string highLimitStr, float lowLimit, float highLimit, std::string sliderText) :
+        outputValue(&value), lowLimitStr(lowLimitStr), highLimitStr(highLimitStr), lowLimit(lowLimit), highLimit(highLimit), sliderText(sliderText)  {
+
+    }
+
+    void draw(float yposition) {
+        // float sliderValue = static_cast<float>(*outputValue);
+
+        // //Draw slider - set position and limits
+        // GuiSlider(Rectangle{40, yposition, 300, 20}, lowLimitStr.c_str(), highLimitStr.c_str(), &sliderValue, static_cast<float>(lowLimit), static_cast<float>(highLimit));
+
+        // // //Set public value to slider value
+        // *outputValue = static_cast<int>(roundf(sliderValue));
+        // *outputValue = Clamp(*outputValue, lowLimit, highLimit);
+
+        // //Draw slider text
+        // DrawText(TextFormat("%s: %i", sliderText.c_str(), *outputValue), 40, yposition+30, 20, DARKGRAY);
+
+        float sliderValue = static_cast<float>(std::log10(*outputValue));
+
+        GuiSlider(Rectangle{40, yposition, 300, 20}, lowLimitStr.c_str(), highLimitStr.c_str(), &sliderValue, std::log10(lowLimit), std::log10(highLimit));
+
+        *outputValue = pow(10,sliderValue);
+
+        DrawText(TextFormat("%s: 10^%.1f", sliderText.c_str(), sliderValue), 40, yposition+30, 20, DARKGRAY);
+
+    }
+};
+
 class Tickbox {
 private:
     std::string name;
@@ -589,7 +632,7 @@ private:
     // int pos;
     bool* outputValue;
 public:
-    int height = 120;
+    int height = 40;
 
     Tickbox(bool &value, std::string tickboxText) :
         outputValue(&value), tickboxText(tickboxText)  {
@@ -621,41 +664,41 @@ void OpenSetupGUI() {
     IntSlider nSlider = IntSlider(particleN, "20", "400", 20, 400, "Total Particles");
     IntSlider trailSlider = IntSlider(maxTrailLength, "1", "100", 0.0f, 100.0f, "Trail Length");
     Tickbox centralMassTick = Tickbox(enableCentralMass, "Central Mass");
+    LogSlider plotsizeSlider = LogSlider(plotSize, "2e14", "2e16", 2e14, 2e16, "Cluster Size (m)");
     bool startPressed = false;
+    Tickbox drawTrailsTick = Tickbox(drawTrails, "Enable Trails");
+    Tickbox randomColoursTick = Tickbox(randomColours, "Random Colours");
     while (!WindowShouldClose() && !startPressed) {
         BeginDrawing();
 
         ClearBackground(RAYWHITE);
 
-        DrawText("Settings for Gravity Simulation", 40, 40, 24, BLACK);
+        float nextYpos = 40;
 
-        // float particleSlider = particleN;
+        DrawText("Settings for Gravity Simulation", 40, nextYpos, 24, BLACK);
+        nextYpos += 60;
+        
+        nSlider.draw(nextYpos);
+        nextYpos += nSlider.height;
 
-        // GuiSlider(Rectangle{40, 100, 300, 20}, "20", "400", &particleSlider, 20, 400);
+        plotsizeSlider.draw(nextYpos);
+        nextYpos += plotsizeSlider.height;
 
-        // particleN = static_cast<int>(roundf(particleSlider));
+        // GuiCheckBox(Rectangle{40, 230, 20, 20}, "Enable Trails", &drawTrails);
+        drawTrailsTick.draw(nextYpos);
+        nextYpos += drawTrailsTick.height;
 
-        // DrawText(TextFormat("Total Particles: %i", particleN), 40, 130, 20, DARKGRAY);
-        nSlider.draw(100);
+        if (drawTrails) {
+            trailSlider.draw(nextYpos);
+            nextYpos += trailSlider.height;
+        }
 
+        // GuiCheckBox(Rectangle{40, 320, 20, 20}, "Random Colours", &randomColours);
+        randomColoursTick.draw(nextYpos);
+        nextYpos += randomColoursTick.height;
 
-
-        float plotSizeSlider = std::log10(plotSize);
-
-        GuiSlider(Rectangle{40, 160, 300, 20}, "1e13", "1e17", &plotSizeSlider, std::log10(1e13f), std::log10(1e17f));
-
-        plotSize = pow(10,plotSizeSlider);
-
-        DrawText(TextFormat("Cluster Size: 10^%.1fm", plotSizeSlider), 40, 190, 20, DARKGRAY);
-
-
-        GuiCheckBox(Rectangle{40, 230, 20, 20}, "Enable Trails", &drawTrails);
-
-        trailSlider.draw(260);
-
-        GuiCheckBox(Rectangle{40, 320, 20, 20}, "Random Colours", &randomColours);
-
-        centralMassTick.draw(360);
+        centralMassTick.draw(nextYpos);
+        nextYpos += centralMassTick.height;
 
         if (GuiButton(Rectangle{40, 400, 140, 35}, "Start")) {
             startPressed = true;
