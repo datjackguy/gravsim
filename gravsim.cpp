@@ -53,6 +53,20 @@ double pythagoras(double x, double y, double z) {
     return r;
 }
 
+struct Vect3 {
+    double x = 0;
+    double y = 0;
+    double z = 0;
+    double magnitude() {
+        return pythagoras(x,y,z);
+    }
+    void set(double x2, double y2, double z2) {
+        x = x2;
+        y = y2;
+        z = z2;
+    }
+};
+
 //Kroupa 2002 IMF 
 double initial_mass_function(double m) {
     if (m < 0.08) {
@@ -90,20 +104,25 @@ std::vector<double> generate_masses(int N) {
 
 
 // Generate position of individual particle within sphere* of maxRad
-std::tuple<double, double, double> randomSph(double maxRad) {
+Vect3 randomSph(double maxRad) {
     double rho = randomDouble(maxRad/20,maxRad);
     double theta = randomDouble(0.0,pi);
     double phi = randomDouble(0.0, 2*pi);
     double x = rho * std::sin(theta) * std::cos(phi);
     double y = 0.4 * rho * std::sin(theta) * std::sin(phi);
     double z = rho * std::cos(theta);
-    return {x, y, z};
+    Vect3 vector;
+    vector.x = x;
+    vector.y = y;
+    vector.z = z;
+
+    return vector;
 }
 
 
 
 //Compute the velocity of a particle at x,y,z
-std::tuple<double, double, double> globularVel(double x, double y, double z, double totalMass) {
+Vect3 globularVel(double x, double y, double z, double totalMass) {
     double velScale;
     double radius = pythagoras(x,y,z);
     double e = 1e12;
@@ -139,7 +158,12 @@ std::tuple<double, double, double> globularVel(double x, double y, double z, dou
     // vely = vely/mag*velScale;
     // velz = velz/mag*velScale;
 
-    return {velx,vely,velz};
+    Vect3 vector;
+    vector.x = velx;
+    vector.y = vely;
+    vector.z = velz;
+
+    return vector;
 
 }
 
@@ -148,49 +172,51 @@ std::tuple<double, double, double> globularVel(double x, double y, double z, dou
 class Particle {
 private:
     double mass;
-    double posx;
-    double posy;
-    double posz;
-    double velx;
-    double vely;
-    double velz;
+    // double posx;
+    // double posy;
+    // double posz;
+    Vect3 pos;
+    // double velx;
+    // double vely;
+    // double velz;
+    Vect3 vel;
     double pvelx; //Previous velocity -- Currently unused
     double pvely;
     double pvelz;
-    std::vector<double> force = {0,0,0};
+    Vect3 force;
     Color colour = WHITE;
 
 public:
     std::vector<Vector3> trail;
     // Constructor
-    Particle(double mass, double posx, double posy, double posz, double velx, double vely, double velz)
-        : mass(mass), posx(posx), posy(posy), posz(posz), velx(velx), vely(vely), velz(velz), pvelx(velx), pvely(vely), pvelz(velz) {
+    Particle(double mass, Vect3 pos, Vect3 vel)
+        : mass(mass), pos(pos), vel(vel) {
     }
 
     // Add (or subtract) force from total force acting on particle
-    void addForce(std::vector<double> fnew, int sign = 1) {
-        force[0]=force[0]+sign*fnew[0];
-        force[1]=force[1]+sign*fnew[1];
-        force[2]=force[2]+sign*fnew[2];
+    void addForce(Vect3 fnew, int sign = 1) {
+        force.x += sign*fnew.x;
+        force.y += sign*fnew.y;
+        force.z += sign*fnew.z;
     }
 
     // Calculate the new position
     void calcPos(double dt) {
-        posx = posx + velx * dt;
-        posy = posy + vely * dt;
-        posz = posz + velz * dt;
+        pos.x += vel.x * dt;
+        pos.y += vel.y * dt;
+        pos.z += vel.z * dt;
     }
 
     // Calculate the new velocity
     void calcVel(double dt) {
-        velx = velx + force[0] * dt / mass;
-        vely = vely + force[1] * dt / mass;
-        velz = velz + force[2] * dt / mass;
+        vel.x += force.x * dt / mass;
+        vel.y += force.y * dt / mass;
+        vel.z += force.z * dt / mass;
     }
 
     // Reset force vector to 0
     void resetForce() {
-        force = {0,0,0};
+        force.set(0,0,0);
     }
 
     //GETTERS/SETTERS
@@ -210,38 +236,36 @@ public:
         mass = newMass;
     }
 
-    std::vector<double> getForce() {
+    Vect3 getForce() {
         return force;
     }
 
-    std::vector<double> getPos() {
-        return {posx,posy,posz};
+    Vect3 getPos() {
+        return pos;
     }
 
-    void setPos(double x, double y, double z) {
-        posx = x;
-        posy = y;
-        posz = z;
+    void setPos(Vect3 newPos) {
+        pos.x = newPos.x;
+        pos.y = newPos.y;
+        pos.z = newPos.z;
     }
 
-    std::vector<double> getVel() {
-        return {velx, vely, velz};
+    Vect3 getVel() {
+        return vel;
     }
 
-    void setVel(double x, double y, double z) {
-        velx = x;
-        vely = y;
-        velz = z;
+    void setVel(Vect3 newVel) {
+        vel = newVel;
     }
 };
 
 // Calculate the distance between two particles - Move to particle class?
 double distanceCalc(Particle &p1, Particle &p2) {
-    std::vector<double> pos1 = p1.getPos();
-    std::vector<double> pos2 = p2.getPos();
-    double dx = (pos1[0]-pos2[0]);
-    double dy = (pos1[1]-pos2[1]);
-    double dz = (pos1[2]-pos2[2]);
+    Vect3 pos1 = p1.getPos();
+    Vect3 pos2 = p2.getPos();
+    double dx = (pos1.x-pos2.x);
+    double dy = (pos1.y-pos2.y);
+    double dz = (pos1.z-pos2.z);
 
     double distance = pythagoras(dx,dy,dz);
 
@@ -249,18 +273,19 @@ double distanceCalc(Particle &p1, Particle &p2) {
 }
 
 // Calculate the force between two particles - Move to particle class?
-std::vector<double> forceCalc(Particle &p1, Particle &p2) {
+Vect3 forceCalc(Particle &p1, Particle &p2) {
     double distance = distanceCalc(p1,p2);
     double mass1 = p1.getMass();
     double mass2 = p2.getMass();
-    std::vector<double> pos1 = p1.getPos();
-    std::vector<double> pos2 = p2.getPos();
+    Vect3 pos1 = p1.getPos();
+    Vect3 pos2 = p2.getPos();
 
-    double forcex = -G*mass1*mass2*(pos1[0]-pos2[0])/pow((distance*distance)+(epsilon*epsilon),1.5);
-    double forcey = -G*mass1*mass2*(pos1[1]-pos2[1])/pow((distance*distance)+(epsilon*epsilon),1.5);
-    double forcez = -G*mass1*mass2*(pos1[2]-pos2[2])/pow((distance*distance)+(epsilon*epsilon),1.5);
+    Vect3 force;
+    force.x = -G*mass1*mass2*(pos1.x-pos2.x)/pow((distance*distance)+(epsilon*epsilon),1.5);
+    force.y = -G*mass1*mass2*(pos1.y-pos2.y)/pow((distance*distance)+(epsilon*epsilon),1.5);
+    force.z = -G*mass1*mass2*(pos1.z-pos2.z)/pow((distance*distance)+(epsilon*epsilon),1.5);
 
-    return {forcex,forcey,forcez};
+    return force;
 }
 
 //Simulation Parameters
@@ -289,17 +314,17 @@ Color randomColour() {
 
 //Calculate total mass within the radius of a particle
 double enclosedMass(Particle &particle) {
-    std::vector<double> ppos = particle.getPos();
-    double x = ppos[0];
-    double y = ppos[1];
-    double z = ppos[2];
+    Vect3 ppos = particle.getPos();
+    double x = ppos.x;
+    double y = ppos.y;
+    double z = ppos.z;
     double radius = pythagoras(x,y,z);
     double mass = 0;
     for (int p = 0; p < particles.size(); p++) {
-        std::vector<double> currentPos = particles[p].getPos();
-        double cx = currentPos[0];
-        double cy = currentPos[1];
-        double cz = currentPos[2];
+        Vect3 currentPos = particles[p].getPos();
+        double cx = currentPos.x;
+        double cy = currentPos.y;
+        double cz = currentPos.z;
         double currentRadius = pythagoras(cx,cy,cz);
         if (currentRadius < radius) {
             mass += particles[p].getMass();
@@ -316,35 +341,37 @@ void initialise_particles() {
     }
 
     for (int i = 0; i < particleN; i++) {
-        std::tuple<double, double, double> pos = randomSph(plotSize/2);
-        double xpos = std::get<0>(pos);
-        double ypos = std::get<1>(pos);
-        double zpos = std::get<2>(pos);
+        Vect3 pos = randomSph(plotSize/2);
+        double xpos = pos.x;
+        double ypos = pos.y;
+        double zpos = pos.z;
         
-        std::tuple<double,double,double> vel = globularVel(xpos,ypos,zpos, totalMass);
-        double xvel = std::get<0>(vel);
-        double yvel = std::get<1>(vel);
-        double zvel = std::get<2>(vel);
+        Vect3 vel = globularVel(xpos,ypos,zpos, totalMass);
+        double xvel = vel.x;
+        double yvel = vel.y;
+        double zvel = vel.z;
 
-        particles.push_back(Particle(masses[i],xpos,ypos,zpos,xvel,yvel,zvel));
+        particles.push_back(Particle(masses[i],pos,vel));
     }
     if (enableCentralMass) {
-        particles.push_back(Particle(5e38, 0, 0, 0, 0, 0, 0));
+        Vect3 zero;
+        zero.set(0,0,0);
+        particles.push_back(Particle(5e38, zero, zero));
     }
     // particles.push_back(Particle(5e38, 1e16, 0, 1e16, -7e6, 5e4, -6e6));
     for (int i = 0; i < particleN; i++) {
         double encMass = enclosedMass(particles[i]);
-        std::vector<double> currentPos = particles[i].getPos();
-        double xpos = currentPos[0];
-        double ypos = currentPos[1];
-        double zpos = currentPos[2];
+        Vect3 currentPos = particles[i].getPos();
+        double xpos = currentPos.x;
+        double ypos = currentPos.y;
+        double zpos = currentPos.z;
 
-        std::tuple<double,double,double> vel = globularVel(xpos,ypos,zpos,encMass);
-        double xvel = std::get<0>(vel);
-        double yvel = std::get<1>(vel);
-        double zvel = std::get<2>(vel);
+        Vect3 vel = globularVel(xpos,ypos,zpos,encMass);
+        double xvel = vel.x;
+        double yvel = vel.y;
+        double zvel = vel.z;
 
-        particles[i].setVel(xvel,yvel,zvel);
+        particles[i].setVel(vel);
     }
     for (int i = 0; i < particles.size(); i++) {
         if (particles[i].getMass() > maxMass) {
@@ -368,38 +395,38 @@ void create_particle_pairs() {
 }
 
 //Calculate the centre of momentum for the initial system - should produce a simulation that remains centred on origin
-void momentum_centre() {
-    std::vector<double> totalMomentum = {0,0,0};
-    std::vector<double> CoM0 = {0,0,0};
-    for (int i = 0; i < particles.size(); i++) {
-        CoM0[0] = CoM0[0] + particles[i].getPos()[0] * particles[i].getMass();
-        CoM0[1] = CoM0[1] + particles[i].getPos()[1] * particles[i].getMass();
-        CoM0[2] = CoM0[2] + particles[i].getPos()[2] * particles[i].getMass();
-        totalMomentum[0] = totalMomentum[0] + particles[i].getMass()*particles[i].getVel()[0];
-        totalMomentum[1] = totalMomentum[1] + particles[i].getMass()*particles[i].getVel()[1];
-        totalMomentum[2] = totalMomentum[2] + particles[i].getMass()*particles[i].getVel()[2];
-    }
-    CoM0[0] = CoM0[0] / totalMass;
-    CoM0[1] = CoM0[1] / totalMass;
-    CoM0[2] = CoM0[2] / totalMass;
-    for (int i = 0; i < particles.size(); i++) {
-        double newPosx = particles[i].getPos()[0] - CoM0[0];
-        double newPosy = particles[i].getPos()[1] - CoM0[1];
-        double newPosz = particles[i].getPos()[2] - CoM0[2];
+// void momentum_centre() {
+//     std::vector<double> totalMomentum = {0,0,0};
+//     std::vector<double> CoM0 = {0,0,0};
+//     for (int i = 0; i < particles.size(); i++) {
+//         CoM0[0] = CoM0[0] + particles[i].getPos()[0] * particles[i].getMass();
+//         CoM0[1] = CoM0[1] + particles[i].getPos()[1] * particles[i].getMass();
+//         CoM0[2] = CoM0[2] + particles[i].getPos()[2] * particles[i].getMass();
+//         totalMomentum[0] = totalMomentum[0] + particles[i].getMass()*particles[i].getVel()[0];
+//         totalMomentum[1] = totalMomentum[1] + particles[i].getMass()*particles[i].getVel()[1];
+//         totalMomentum[2] = totalMomentum[2] + particles[i].getMass()*particles[i].getVel()[2];
+//     }
+//     CoM0[0] = CoM0[0] / totalMass;
+//     CoM0[1] = CoM0[1] / totalMass;
+//     CoM0[2] = CoM0[2] / totalMass;
+//     for (int i = 0; i < particles.size(); i++) {
+//         double newPosx = particles[i].getPos()[0] - CoM0[0];
+//         double newPosy = particles[i].getPos()[1] - CoM0[1];
+//         double newPosz = particles[i].getPos()[2] - CoM0[2];
 
-        double newVelx = particles[i].getVel()[0] - totalMomentum[0]/totalMass;
-        double newVely = particles[i].getVel()[1] - totalMomentum[1]/totalMass;
-        double newVelz = particles[i].getVel()[2] - totalMomentum[2]/totalMass;
+//         double newVelx = particles[i].getVel()[0] - totalMomentum[0]/totalMass;
+//         double newVely = particles[i].getVel()[1] - totalMomentum[1]/totalMass;
+//         double newVelz = particles[i].getVel()[2] - totalMomentum[2]/totalMass;
 
-        particles[i].setPos(newPosx,newPosy,newPosz);
-        particles[i].setVel(newVelx,newVely,newVelz);
-    }
-}
+//         particles[i].setPos(newPosx,newPosy,newPosz);
+//         particles[i].setVel(newVelx,newVely,newVelz);
+//     }
+// }
 
 //Update the simulation for each timestep
 void update() {
     for (int p = 0; p < particlePairs.size(); p++) {
-        std::vector<double> force = forceCalc(particles[particlePairs[p][0]],particles[particlePairs[p][1]]);
+        Vect3 force = forceCalc(particles[particlePairs[p][0]],particles[particlePairs[p][1]]);
 
         particles[particlePairs[p][0]].addForce(force);
         particles[particlePairs[p][1]].addForce(force, -1);
@@ -409,13 +436,13 @@ void update() {
         particles[i].calcVel(timestep);
         particles[i].resetForce();
 
-        std::vector<double> pos = particles[i].getPos();
+        Vect3 pos = particles[i].getPos();
         float renderScale = 10.0f / plotSize;
 
         Vector3 trailPoint = {
-            static_cast<float>(pos[0] * renderScale),
-            static_cast<float>(pos[1] * renderScale),
-            static_cast<float>(pos[2] * renderScale)
+            static_cast<float>(pos.x * renderScale),
+            static_cast<float>(pos.y * renderScale),
+            static_cast<float>(pos.z * renderScale)
         };
 
         particles[i].trail.push_back(trailPoint);
@@ -471,10 +498,10 @@ void UpdateOrbitCamera(Camera3D& camera, float& yaw, float& pitch, float& distan
 
 //Allow the user to move a particle mid-simulation with WASD
 void UpdateParticlePos(Particle &particle) {
-    std::vector<double> ppos = particle.getPos();
-    double x = ppos[0];
-    double y = ppos[1];
-    double z = ppos[2];
+    Vect3 ppos = particle.getPos();
+    double x = ppos.x;
+    double y = ppos.y;
+    double z = ppos.z;
     bool changed = false;
     if (IsKeyDown(KEY_S)) {
         x = x + plotSize/120;
@@ -494,7 +521,9 @@ void UpdateParticlePos(Particle &particle) {
     }
 
     if (changed) {
-        particle.setPos(x,y,z);
+        Vect3 newPos;
+        newPos.set(x,y,z);
+        particle.setPos(newPos);
     }
 
 }
@@ -771,12 +800,12 @@ int main() {
         DrawLine3D({ 0.0f, 0.0f, -10.0f }, { 0.0f, 0.0f, 10.0f }, BLUE);
 
         for (int i = 0; i < particles.size(); i++) {
-            std::vector ppos = particles[i].getPos();
+            Vect3 ppos = particles[i].getPos();
             float renderScale = 10.0f / plotSize;
 
-            float px = static_cast<float>(ppos[0] * renderScale);
-            float py = static_cast<float>(ppos[1] * renderScale);
-            float pz = static_cast<float>(ppos[2] * renderScale);
+            float px = static_cast<float>(ppos.x * renderScale);
+            float py = static_cast<float>(ppos.y * renderScale);
+            float pz = static_cast<float>(ppos.z * renderScale);
 
             // float circleSize = particles[i].getMass()/1.989e30; 
             float circleSize;// = std::log(particles[i].getMass())/std::log((1.989e34))*2;
