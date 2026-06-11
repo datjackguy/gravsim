@@ -1,6 +1,10 @@
 //Compile Portable -- g++ gravsim.cpp -o gravsim.exe -I include -L lib -lraylib -lgdi32 -lwinmm -static-libgcc -static-libstdc++ -static
 //2 -- g++ gravsim.cpp -o gravsim.exe -I include -L lib -static -static-libgcc -static-libstdc++ -lraylib -lopengl32 -lgdi32 -lwinmm
 //3 Optimised g++ -O2 gravsim.cpp -o gravsim.exe -I include -L lib -lraylib -lgdi32 -lwinmm -static-libgcc -static-libstdc++ -static
+//4 g++ -O3 gravsim.cpp -o gravsim.exe -I include -L lib -lraylib -lgdi32 -lwinmm -static-libgcc -static-libstdc++ -static
+//5 With Warning g++ -std=c++20 -Wall -Wextra -Wpedantic -O2 gravsim.cpp -o gravsim.exe \
+    -I include -L lib -lraylib -lgdi32 -lwinmm \
+    -static-libgcc -static-libstdc++ -static
 
 #include <iostream>
 #include <cmath>
@@ -53,11 +57,22 @@ double pythagoras(double x, double y, double z) {
     return r;
 }
 
+
+
+//Overloaded for any vector length
+double pythagoras(std::vector<double> vector) {
+    double sumsq = 0;
+    for (int i = 0; i < vector.size(); i++) {
+        sumsq += vector[i]*vector[i];
+    }
+    return sqrt(sumsq);
+}
+
 struct Vect3 {
     double x = 0;
     double y = 0;
     double z = 0;
-    double magnitude() {
+    double magnitude() const {
         return pythagoras(x,y,z);
     }
     void set(double x2, double y2, double z2) {
@@ -65,7 +80,44 @@ struct Vect3 {
         y = y2;
         z = z2;
     }
+    Vect3& operator+=(const Vect3& other) {
+        x += other.x;
+        y += other.y;
+        z += other.z;
+        return *this;
+    }
+    Vect3& operator-=(const Vect3& other) {
+        x -= other.x;
+        y -= other.y;
+        z -= other.z;
+        return *this;
+    }
+    Vect3 operator+(const Vect3& other) const {
+        Vect3 result = *this;
+        result += other;
+        return result;
+    }
+    Vect3 operator-(const Vect3& other) const {
+        Vect3 result = *this;
+        result -= other;
+        return result;
+    }
+    Vect3 operator*(double scalar) const {
+        return {x * scalar, y * scalar, z * scalar};
+    }
+    Vect3 operator/(double scalar) const {
+        return {x / scalar, y / scalar, z / scalar};
+    }
 };
+
+Vect3 operator*(double scalar, const Vect3& vector) {
+    return vector * scalar;
+}
+
+//Overloaded for Vect3
+double pythagoras(Vect3 vector) {
+    return sqrt(vector.x*vector.x+vector.y+vector.y+vector.z*vector.z);
+}
 
 //Kroupa 2002 IMF 
 double initial_mass_function(double m) {
@@ -122,11 +174,15 @@ Vect3 randomSph(double maxRad) {
 
 
 //Compute the velocity of a particle at x,y,z
-Vect3 globularVel(double x, double y, double z, double totalMass) {
+Vect3 globularVel(Vect3 pos, double totalMass) {
     double velScale;
-    double radius = pythagoras(x,y,z);
+    double radius = pythagoras(pos);
     double e = 1e12;
     velScale = 2* pow((G*totalMass/(radius+e)),0.5);
+
+    double x = pos.x;
+    double y = pos.y;
+    double z = pos.z;
 
     // double velx = randomDouble(0,1)-0.5;
     // double vely = randomDouble(0,1)-0.5;
@@ -195,23 +251,17 @@ public:
 
     // Add (or subtract) force from total force acting on particle
     void addForce(Vect3 fnew, int sign = 1) {
-        force.x += sign*fnew.x;
-        force.y += sign*fnew.y;
-        force.z += sign*fnew.z;
+        force += sign * fnew;
     }
 
     // Calculate the new position
     void calcPos(double dt) {
-        pos.x += vel.x * dt;
-        pos.y += vel.y * dt;
-        pos.z += vel.z * dt;
+        pos += vel * dt;
     }
 
     // Calculate the new velocity
     void calcVel(double dt) {
-        vel.x += force.x * dt / mass;
-        vel.y += force.y * dt / mass;
-        vel.z += force.z * dt / mass;
+        vel += force * dt / mass;
     }
 
     // Reset force vector to 0
@@ -228,7 +278,7 @@ public:
         return colour;
     }
 
-    double getMass() {
+    double getMass() const {
         return mass;
     }
 
@@ -236,21 +286,19 @@ public:
         mass = newMass;
     }
 
-    Vect3 getForce() {
+    Vect3 getForce() const {
         return force;
     }
 
-    Vect3 getPos() {
+    Vect3 getPos() const {
         return pos;
     }
 
     void setPos(Vect3 newPos) {
-        pos.x = newPos.x;
-        pos.y = newPos.y;
-        pos.z = newPos.z;
+        pos = newPos;
     }
 
-    Vect3 getVel() {
+    Vect3 getVel() const {
         return vel;
     }
 
@@ -260,20 +308,19 @@ public:
 };
 
 // Calculate the distance between two particles - Move to particle class?
-double distanceCalc(Particle &p1, Particle &p2) {
+double distanceCalc(const Particle &p1, const Particle &p2) {
     Vect3 pos1 = p1.getPos();
     Vect3 pos2 = p2.getPos();
-    double dx = (pos1.x-pos2.x);
-    double dy = (pos1.y-pos2.y);
-    double dz = (pos1.z-pos2.z);
 
-    double distance = pythagoras(dx,dy,dz);
+    Vect3 disp = pos1-pos2;
+
+    double distance = pythagoras(disp);
 
     return distance;
 }
 
 // Calculate the force between two particles - Move to particle class?
-Vect3 forceCalc(Particle &p1, Particle &p2) {
+Vect3 forceCalc(const Particle &p1, const Particle &p2) {
     double distance = distanceCalc(p1,p2);
     double mass1 = p1.getMass();
     double mass2 = p2.getMass();
@@ -281,9 +328,8 @@ Vect3 forceCalc(Particle &p1, Particle &p2) {
     Vect3 pos2 = p2.getPos();
 
     Vect3 force;
-    force.x = -G*mass1*mass2*(pos1.x-pos2.x)/pow((distance*distance)+(epsilon*epsilon),1.5);
-    force.y = -G*mass1*mass2*(pos1.y-pos2.y)/pow((distance*distance)+(epsilon*epsilon),1.5);
-    force.z = -G*mass1*mass2*(pos1.z-pos2.z)/pow((distance*distance)+(epsilon*epsilon),1.5);
+
+    force = -G*mass1*mass2*(pos1-pos2)/pow((distance*distance)+(epsilon*epsilon),1.5);
 
     return force;
 }
@@ -315,17 +361,13 @@ Color randomColour() {
 //Calculate total mass within the radius of a particle
 double enclosedMass(Particle &particle) {
     Vect3 ppos = particle.getPos();
-    double x = ppos.x;
-    double y = ppos.y;
-    double z = ppos.z;
-    double radius = pythagoras(x,y,z);
+
+    double radius = pythagoras(ppos);
     double mass = 0;
     for (int p = 0; p < particles.size(); p++) {
         Vect3 currentPos = particles[p].getPos();
-        double cx = currentPos.x;
-        double cy = currentPos.y;
-        double cz = currentPos.z;
-        double currentRadius = pythagoras(cx,cy,cz);
+
+        double currentRadius = pythagoras(currentPos);
         if (currentRadius < radius) {
             mass += particles[p].getMass();
         }
@@ -342,14 +384,8 @@ void initialise_particles() {
 
     for (int i = 0; i < particleN; i++) {
         Vect3 pos = randomSph(plotSize/2);
-        double xpos = pos.x;
-        double ypos = pos.y;
-        double zpos = pos.z;
         
-        Vect3 vel = globularVel(xpos,ypos,zpos, totalMass);
-        double xvel = vel.x;
-        double yvel = vel.y;
-        double zvel = vel.z;
+        Vect3 vel = globularVel(pos, totalMass);
 
         particles.push_back(Particle(masses[i],pos,vel));
     }
@@ -362,14 +398,8 @@ void initialise_particles() {
     for (int i = 0; i < particleN; i++) {
         double encMass = enclosedMass(particles[i]);
         Vect3 currentPos = particles[i].getPos();
-        double xpos = currentPos.x;
-        double ypos = currentPos.y;
-        double zpos = currentPos.z;
 
-        Vect3 vel = globularVel(xpos,ypos,zpos,encMass);
-        double xvel = vel.x;
-        double yvel = vel.y;
-        double zvel = vel.z;
+        Vect3 vel = globularVel(currentPos,encMass);
 
         particles[i].setVel(vel);
     }
