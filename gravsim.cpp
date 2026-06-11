@@ -21,7 +21,7 @@
 const double pi = 3.141592653589793;
 const double G = 6.67430e-11;
 const double epsilon = 5e13;
-const double M0 = 1.989e30;
+const double M0 = 1.989e30; //kg
 bool enableCentralMass = true;
 
 //Initialise random generator
@@ -40,6 +40,21 @@ double randomInteger(int min, int max) {
     std::uniform_int_distribution<int> dist(min, max);
     return dist(gen);
 }
+
+int randomSign() {
+    std::uniform_int_distribution<int> dist(-1, 1);
+    int sign = 0;
+    while (sign == 0) {
+        sign = dist(gen);
+    }
+    return sign;
+}
+
+Color randomColour(const std::vector<Color>&colourList) {
+    int colouri = randomInteger(0,colourList.size()-1);
+    return colourList[colouri];
+}
+
 
 //Convert a 3 value vector to Raylib's Vector3
 Vector3 ToVector3(const std::vector<double>& values)
@@ -116,8 +131,83 @@ Vect3 operator*(double scalar, const Vect3& vector) {
 
 //Overloaded for Vect3
 double pythagoras(Vect3 vector) {
-    return sqrt(vector.x*vector.x+vector.y+vector.y+vector.z*vector.z);
+    return sqrt(vector.x*vector.x+vector.y*vector.y+vector.z*vector.z);
 }
+
+
+//Particle Class
+class Particle {
+private:
+    double mass;
+    Vect3 pos;
+    Vect3 vel;
+    Vect3 force;
+    Color colour = WHITE;
+
+public:
+    std::vector<Vector3> trail;
+    // Constructor
+    Particle(double mass, Vect3 pos, Vect3 vel)
+        : mass(mass), pos(pos), vel(vel) {
+    }
+
+    // Add (or subtract) force from total force acting on particle
+    void addForce(Vect3 fnew, int sign = 1) {
+        force += sign * fnew;
+    }
+
+    // Calculate the new position
+    void calcPos(double dt) {
+        pos += vel * dt;
+    }
+
+    // Calculate the new velocity
+    void calcVel(double dt) {
+        vel += force * dt / mass;
+    }
+
+    // Reset force vector to 0
+    void resetForce() {
+        force.set(0,0,0);
+    }
+
+    //GETTERS/SETTERS
+    void setColour(Color newColour) {
+        colour = newColour;
+    }
+
+    Color getColour() const {
+        return colour;
+    }
+
+    double getMass() const {
+        return mass;
+    }
+
+    void setMass(double newMass) {
+        mass = newMass;
+    }
+
+    Vect3 getForce() const {
+        return force;
+    }
+
+    Vect3 getPos() const {
+        return pos;
+    }
+
+    void setPos(Vect3 newPos) {
+        pos = newPos;
+    }
+
+    Vect3 getVel() const {
+        return vel;
+    }
+
+    void setVel(Vect3 newVel) {
+        vel = newVel;
+    }
+};
 
 //Kroupa 2002 IMF 
 double initial_mass_function(double m) {
@@ -213,216 +303,300 @@ Vect3 globularVel(Vect3 pos, double totalMass) {
     // velx = velx/mag*velScale;
     // vely = vely/mag*velScale;
     // velz = velz/mag*velScale;
+    
 
     Vect3 vector;
     vector.x = velx;
     vector.y = vely;
     vector.z = velz;
 
+    // int sign = randomSign();
+    // vector = vector * sign;
+
     return vector;
 
 }
 
 
-//Particle Class
-class Particle {
+
+
+Color distanceColour(const Particle& particle, double plotSize) {
+    double distance = particle.getPos().magnitude();
+    //plotSize/2 <1/3, <2/3, <3/3, else
+    if (distance < plotSize/6) {
+        return VIOLET;
+    }
+    else if (distance < plotSize/3) {
+        return RED;
+    }
+    else if (distance < plotSize/2) {
+        return ORANGE;
+    }
+    else {
+        return GREEN;
+    }
+}
+
+
+//Simulation Parameters
+// double timestep = 0.5*10*24*60*60; //s
+// double runtime = 100*365.25*24*60*60; //s
+// int frame = 0;
+// int frames = 10;
+// std::vector<double> times;
+// double currentTime = 0.0;
+// std::vector<Particle> particles;
+// int particleN = 300;
+// double plotSize = 2e15; //m
+// double totalMass = 0; //kg
+// std::vector<std::vector<int>> particlePairs;
+// double maxMass = 0;
+// double minMass = 1e64;
+// int maxTrailLength = 20;
+std::vector<Color> colourList = {RED,GREEN,BLUE,ORANGE,PURPLE,GREEN,MAGENTA,SKYBLUE};
+// bool randomColours = false;
+// bool drawTrails = true;
+
+struct UserSettings {
+    //Directly Modifiable
+    //Toggles
+    bool randomColours = false;
+    bool distanceColours = true;
+    bool enableCentralMass = true;
+    bool drawTrails = true;
+    //Values
+    int particleN = 300;
+    double plotSize = 2e15;
+    int maxTrailLength = 20;
+};
+
+class Simulation {
 private:
-    double mass;
-    // double posx;
-    // double posy;
-    // double posz;
-    Vect3 pos;
-    // double velx;
-    // double vely;
-    // double velz;
-    Vect3 vel;
-    double pvelx; //Previous velocity -- Currently unused
-    double pvely;
-    double pvelz;
-    Vect3 force;
-    Color colour = WHITE;
+    UserSettings settings;
+
+    std::vector<Particle> particles;
+    std::vector<std::vector<int>> particlePairs;
+
+    double timestep = 0.5*10*24*60*60;
+    double totalMass = 0.0;
+    double maxMass = 0.0; //Initialise maximum present mass, determined after particles created
+    double minMass = 1e64; //As above for minimum mass
 
 public:
-    std::vector<Vector3> trail;
-    // Constructor
-    Particle(double mass, Vect3 pos, Vect3 vel)
-        : mass(mass), pos(pos), vel(vel) {
+    Simulation(const UserSettings& settings)
+        : settings(settings) {
+        initialise_particles();
+        momentum_centre();
+        create_particle_pairs();
+        colour_options();
+        
+    }
+private:
+    //Colour options
+    void colour_options() {
+        if (settings.randomColours) {
+            for (Particle& particle : particles) {
+                particle.setColour(randomColour(colourList));
+            }
+        }
+
+        if (settings.distanceColours) {
+            for (Particle& particle : particles) {
+                particle.setColour(distanceColour(particle, settings.plotSize));
+            }
+        }
+
+        if (particles.empty() == false && settings.enableCentralMass == false) {
+            particles.back().setColour(YELLOW);
+        }
     }
 
-    // Add (or subtract) force from total force acting on particle
-    void addForce(Vect3 fnew, int sign = 1) {
-        force += sign * fnew;
-    }
 
-    // Calculate the new position
-    void calcPos(double dt) {
-        pos += vel * dt;
-    }
+    //Create all particle objects
+    void initialise_particles() {
+        std::vector<double> masses = generate_masses(settings.particleN);
 
-    // Calculate the new velocity
-    void calcVel(double dt) {
-        vel += force * dt / mass;
-    }
+        for (int i = 0; i < settings.particleN; i++) {
+            Vect3 pos = randomSph(settings.plotSize/2);
+            Vect3 vel{0,0,0};
+            particles.push_back(Particle(masses[i],pos,vel));
+        }
+        if (settings.enableCentralMass) {
+            Vect3 zero{0,0,0};
+            particles.push_back(Particle(5e38, zero, zero));
+        }
+        // particles.push_back(Particle(6e38, Vect3{2e15, 0, 2e15}, 0.2*globularVel(Vect3{2e15, 0, 2e15}, 5e38)));
+        // particles.push_back(Particle(6e38, Vect3{-2e15, 0, -2e15}, 0.2*globularVel(Vect3{-2e15, 0, -2e15}, 5e38)));
+        updateMassLimits();
 
-    // Reset force vector to 0
-    void resetForce() {
-        force.set(0,0,0);
-    }
+        for (int i = 0; i < settings.particleN; i++) {
+            double encMass = enclosedMass(particles[i]);
+            Vect3 currentPos = particles[i].getPos();
 
-    //GETTERS/SETTERS
-    void setColour(Color newColour) {
-        colour = newColour;
-    }
+            Vect3 vel = globularVel(currentPos,encMass);
 
-    Color getColour() const {
-        return colour;
-    }
+            particles[i].setVel(vel);
+        }
 
-    double getMass() const {
+    }
+    void updateMassLimits() {
+        totalMass = 0.0;
+        minMass = 1e64;
+        maxMass = 0.0;
+        for (int i = 0; i < particles.size(); i++) {
+            double particleMass = particles[i].getMass();
+            totalMass += particleMass;
+            if (particleMass > maxMass) {
+                maxMass = particleMass;
+            }
+            if (particleMass < minMass) {
+                minMass = particleMass;
+            }
+        }
+    }
+    //Recentre system to avoid drift
+    void momentum_centre() {
+        Vect3 weightedPosition{0.0, 0.0, 0.0};
+        Vect3 totalMomentum{0.0, 0.0, 0.0};
+        double massSum = 0.0;
+
+        for (const Particle& particle : particles) {
+            double mass = particle.getMass();
+
+            weightedPosition += particle.getPos() * mass;
+            totalMomentum += particle.getVel() * mass;
+            massSum += mass;
+        }
+
+        Vect3 centreOfMass = weightedPosition / massSum;
+        Vect3 centreVelocity = totalMomentum / massSum;
+
+        for (Particle& particle : particles) {
+            particle.setPos(particle.getPos() - centreOfMass);
+            particle.setVel(particle.getVel() - centreVelocity);
+        }
+    }
+    //Calculate total mass within the radius of a particle
+    double enclosedMass(const Particle &particle) const {
+        Vect3 ppos = particle.getPos();
+
+        double radius = pythagoras(ppos);
+        double mass = 0;
+        for (int p = 0; p < particles.size(); p++) {
+            Vect3 currentPos = particles[p].getPos();
+
+            double currentRadius = pythagoras(currentPos);
+            if (currentRadius < radius) {
+                mass += particles[p].getMass();
+            }
+        }
         return mass;
     }
+    // Create list containing the indices of each pair of particles
+    void create_particle_pairs() {
+        particlePairs.clear();
 
-    void setMass(double newMass) {
-        mass = newMass;
+        for (int i = 0; i < particles.size(); i++) {
+            for (int j = i+1; j < particles.size(); j++) {
+                std::vector<int> pair = {i,j}; 
+                particlePairs.push_back(pair);
+            }
+        }
     }
 
-    Vect3 getForce() const {
+    // Calculate the distance between two particles
+    double distanceCalc(const Particle &p1, const Particle &p2) {
+        Vect3 pos1 = p1.getPos();
+        Vect3 pos2 = p2.getPos();
+
+        Vect3 disp = pos1-pos2;
+
+        double distance = disp.magnitude();
+
+        return distance;
+    }
+
+    // Calculate the force between two particles
+    Vect3 forceCalc(const Particle &p1, const Particle &p2) {
+        double distance = distanceCalc(p1,p2);
+        double mass1 = p1.getMass();
+        double mass2 = p2.getMass();
+        Vect3 pos1 = p1.getPos();
+        Vect3 pos2 = p2.getPos();
+
+        Vect3 force;
+
+        force = -G*mass1*mass2*(pos1-pos2)/pow((distance*distance)+(epsilon*epsilon),1.5);
+
         return force;
     }
 
-    Vect3 getPos() const {
-        return pos;
+public:
+    //Update the simulation for each timestep
+    void update() {
+        for (int p = 0; p < particlePairs.size(); p++) {
+            Vect3 force = forceCalc(particles[particlePairs[p][0]],particles[particlePairs[p][1]]);
+
+            particles[particlePairs[p][0]].addForce(force);
+            particles[particlePairs[p][1]].addForce(force, -1);
+        }
+        for (int i = 0; i < particles.size(); i++) {
+            particles[i].calcVel(timestep);
+            particles[i].calcPos(timestep);
+            particles[i].resetForce();
+
+            Vect3 pos = particles[i].getPos();
+            float renderScale = 10.0f / settings.plotSize;
+
+            Vector3 trailPoint = {
+                static_cast<float>(pos.x * renderScale),
+                static_cast<float>(pos.y * renderScale),
+                static_cast<float>(pos.z * renderScale)
+            };
+
+            particles[i].trail.push_back(trailPoint);
+
+            if (particles[i].trail.size() > settings.maxTrailLength) {
+                particles[i].trail.erase(particles[i].trail.begin());
+            }
+        }
     }
 
-    void setPos(Vect3 newPos) {
-        pos = newPos;
+    const std::vector<Particle>& getParticles() const {
+        return particles;
     }
 
-    Vect3 getVel() const {
-        return vel;
+    double getPlotSize() const {
+        return settings.plotSize;
     }
 
-    void setVel(Vect3 newVel) {
-        vel = newVel;
+    double getMaxMass() const {
+        return maxMass;
+    }
+
+    double getMinMass() const {
+        return minMass;
+    }
+
+    double getTotalMass() const {
+        return totalMass;
+    }
+
+    bool shouldDrawTrails() const {
+        return settings.drawTrails;
     }
 };
 
-// Calculate the distance between two particles - Move to particle class?
-double distanceCalc(const Particle &p1, const Particle &p2) {
-    Vect3 pos1 = p1.getPos();
-    Vect3 pos2 = p2.getPos();
-
-    Vect3 disp = pos1-pos2;
-
-    double distance = pythagoras(disp);
-
-    return distance;
-}
-
-// Calculate the force between two particles - Move to particle class?
-Vect3 forceCalc(const Particle &p1, const Particle &p2) {
-    double distance = distanceCalc(p1,p2);
-    double mass1 = p1.getMass();
-    double mass2 = p2.getMass();
-    Vect3 pos1 = p1.getPos();
-    Vect3 pos2 = p2.getPos();
-
-    Vect3 force;
-
-    force = -G*mass1*mass2*(pos1-pos2)/pow((distance*distance)+(epsilon*epsilon),1.5);
-
-    return force;
-}
-
-//Simulation Parameters
-double timestep = 0.5*10*24*60*60; //s
-double runtime = 100*365.25*24*60*60; //s
-int frame = 0;
-int frames = 10;
-std::vector<double> times;
-double currentTime = 0.0;
-std::vector<Particle> particles;
-int particleN = 300;
-double plotSize = 2e15; //m
-double totalMass = 0; //kg
-std::vector<std::vector<int>> particlePairs;
-double maxMass = 0;
-double minMass = 1e64;
-int maxTrailLength = 20;
-std::vector<Color> colourList = {RED,GREEN,BLUE,ORANGE,PURPLE,GREEN,MAGENTA,SKYBLUE};
-bool randomColours = false;
-
-Color randomColour() {
-    int colouri = randomInteger(0,colourList.size()-1);
-    return colourList[colouri];
-}
 
 
-//Calculate total mass within the radius of a particle
-double enclosedMass(Particle &particle) {
-    Vect3 ppos = particle.getPos();
-
-    double radius = pythagoras(ppos);
-    double mass = 0;
-    for (int p = 0; p < particles.size(); p++) {
-        Vect3 currentPos = particles[p].getPos();
-
-        double currentRadius = pythagoras(currentPos);
-        if (currentRadius < radius) {
-            mass += particles[p].getMass();
-        }
-    }
-    return mass;
-}
-
-//Create all particle objects
-void initialise_particles() {
-    std::vector<double> masses = generate_masses(particleN);
-    for (int i = 0; i < particleN; i++) {
-        totalMass = totalMass + masses[i];
-    }
-
-    for (int i = 0; i < particleN; i++) {
-        Vect3 pos = randomSph(plotSize/2);
-        
-        Vect3 vel = globularVel(pos, totalMass);
-
-        particles.push_back(Particle(masses[i],pos,vel));
-    }
-    if (enableCentralMass) {
-        Vect3 zero;
-        zero.set(0,0,0);
-        particles.push_back(Particle(5e38, zero, zero));
-    }
-    // particles.push_back(Particle(5e38, 1e16, 0, 1e16, -7e6, 5e4, -6e6));
-    for (int i = 0; i < particleN; i++) {
-        double encMass = enclosedMass(particles[i]);
-        Vect3 currentPos = particles[i].getPos();
-
-        Vect3 vel = globularVel(currentPos,encMass);
-
-        particles[i].setVel(vel);
-    }
-    for (int i = 0; i < particles.size(); i++) {
-        if (particles[i].getMass() > maxMass) {
-            maxMass = particles[i].getMass();
-        }
-        else if (particles[i].getMass() < minMass) {
-            minMass = particles[i].getMass();
-        }
-    }
-}
 
 
-// Create list containing the indices of each pair of particles
-void create_particle_pairs() {
-    for (int i = 0; i < particles.size(); i++) {
-        for (int j = i+1; j < particles.size(); j++) {
-            std::vector<int> pair = {i,j}; 
-            particlePairs.push_back(pair);
-        }
-    }
-}
+
+
+
+
+
+
 
 //Calculate the centre of momentum for the initial system - should produce a simulation that remains centred on origin
 // void momentum_centre() {
@@ -453,35 +627,7 @@ void create_particle_pairs() {
 //     }
 // }
 
-//Update the simulation for each timestep
-void update() {
-    for (int p = 0; p < particlePairs.size(); p++) {
-        Vect3 force = forceCalc(particles[particlePairs[p][0]],particles[particlePairs[p][1]]);
 
-        particles[particlePairs[p][0]].addForce(force);
-        particles[particlePairs[p][1]].addForce(force, -1);
-    }
-    for (int i = 0; i < particles.size(); i++) {
-        particles[i].calcPos(timestep);
-        particles[i].calcVel(timestep);
-        particles[i].resetForce();
-
-        Vect3 pos = particles[i].getPos();
-        float renderScale = 10.0f / plotSize;
-
-        Vector3 trailPoint = {
-            static_cast<float>(pos.x * renderScale),
-            static_cast<float>(pos.y * renderScale),
-            static_cast<float>(pos.z * renderScale)
-        };
-
-        particles[i].trail.push_back(trailPoint);
-
-        if (particles[i].trail.size() > maxTrailLength) {
-            particles[i].trail.erase(particles[i].trail.begin());
-        }
-    }
-}
 
 // Drawing Functions -----
 //Enable user control of camera view (zoom and rotate)
@@ -527,26 +673,26 @@ void UpdateOrbitCamera(Camera3D& camera, float& yaw, float& pitch, float& distan
 }
 
 //Allow the user to move a particle mid-simulation with WASD
-void UpdateParticlePos(Particle &particle) {
+void UpdateParticlePos(Particle &particle, UserSettings settings) {
     Vect3 ppos = particle.getPos();
     double x = ppos.x;
     double y = ppos.y;
     double z = ppos.z;
     bool changed = false;
     if (IsKeyDown(KEY_S)) {
-        x = x + plotSize/120;
+        x = x + settings.plotSize/120;
         changed = true;
     }
     if (IsKeyDown(KEY_W)) {
-        x = x - plotSize/120;
+        x = x - settings.plotSize/120;
         changed = true;
     }
     if (IsKeyDown(KEY_D)) {
-        z = z - plotSize/120;
+        z = z - settings.plotSize/120;
         changed = true;
     }
     if (IsKeyDown(KEY_A)) {
-        z = z + plotSize/120;
+        z = z + settings.plotSize/120;
         changed = true;
     }
 
@@ -573,11 +719,11 @@ void UpdateParticleMass(Particle &particle) {
 }
 
 // Calculate animation sphere size
-float GetVisualRadius(double mass) {
+float GetVisualRadius(double mass, double totalMass, double minMass, double maxMass, int numParticles) {
 
     //Change to median!!!?
 
-    float averageMass = (totalMass/particles.size());
+    float averageMass = (totalMass/numParticles);
 
     float minRadius = 0.01f;
     float maxRadius = 0.4f;
@@ -712,21 +858,18 @@ public:
     }
 };
 
-bool drawTrails = true;
-
-
-void OpenSetupGUI() {
+void OpenSetupGUI(UserSettings& settings) {
     //Open Settings GUI
     InitWindow(500, 500, "Gravity Simulation Settings");
     SetTargetFPS(60);
 
-    IntSlider nSlider = IntSlider(particleN, "20", "400", 20, 400, "Total Particles");
-    IntSlider trailSlider = IntSlider(maxTrailLength, "1", "100", 0.0f, 100.0f, "Trail Length");
-    Tickbox centralMassTick = Tickbox(enableCentralMass, "Central Mass");
-    LogSlider plotsizeSlider = LogSlider(plotSize, "2e14", "2e16", 2e14, 2e16, "Cluster Size (m)");
+    IntSlider nSlider = IntSlider(settings.particleN, "20", "400", 20, 400, "Total Particles");
+    IntSlider trailSlider = IntSlider(settings.maxTrailLength, "1", "100", 0.0f, 100.0f, "Trail Length");
+    Tickbox centralMassTick = Tickbox(settings.enableCentralMass, "Central Mass");
+    LogSlider plotsizeSlider = LogSlider(settings.plotSize, "2e14", "2e16", 2e14, 2e16, "Cluster Size (m)");
     bool startPressed = false;
-    Tickbox drawTrailsTick = Tickbox(drawTrails, "Enable Trails");
-    Tickbox randomColoursTick = Tickbox(randomColours, "Random Colours");
+    Tickbox drawTrailsTick = Tickbox(settings.drawTrails, "Enable Trails");
+    Tickbox randomColoursTick = Tickbox(settings.randomColours, "Random Colours");
     while (!WindowShouldClose() && !startPressed) {
         BeginDrawing();
 
@@ -747,7 +890,7 @@ void OpenSetupGUI() {
         drawTrailsTick.draw(nextYpos);
         nextYpos += drawTrailsTick.height;
 
-        if (drawTrails) {
+        if (settings.drawTrails) {
             trailSlider.draw(nextYpos);
             nextYpos += trailSlider.height;
         }
@@ -770,22 +913,20 @@ void OpenSetupGUI() {
 }
 
 
+
+
 int main() {
 
-    OpenSetupGUI();
+    //Create settings struct
+    UserSettings settings;
+
+    OpenSetupGUI(settings);
 
     //Start Simulation
-    initialise_particles();
-    create_particle_pairs();
+    Simulation sim(settings);
+
     // momentum_centre();
 
-    if (randomColours) {
-        for (int i = 0; i < particles.size(); i++) {
-            Color colour = randomColour();
-            particles[i].setColour(colour);
-        }
-    }
-    particles[particles.size()-1].setColour(YELLOW);
 
     int windowWidth = 1200;
     int windowHeight = 1200;
@@ -805,16 +946,18 @@ int main() {
 
     SetTargetFPS(60);
 
-
+    std::vector<Particle> particles;
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
         float time = GetTime();
 
+        particles = sim.getParticles();
+
         UpdateOrbitCamera(camera, cameraYaw, cameraPitch, cameraDistance);
 
-        UpdateParticlePos(particles[particles.size()-2]);
+        UpdateParticlePos(particles[particles.size()-1], settings);
 
-        UpdateParticleMass(particles[particles.size()-2]);
+        UpdateParticleMass(particles[particles.size()-1]);
 
         BeginDrawing();
 
@@ -831,7 +974,7 @@ int main() {
 
         for (int i = 0; i < particles.size(); i++) {
             Vect3 ppos = particles[i].getPos();
-            float renderScale = 10.0f / plotSize;
+            float renderScale = 10.0f / settings.plotSize;
 
             float px = static_cast<float>(ppos.x * renderScale);
             float py = static_cast<float>(ppos.y * renderScale);
@@ -840,7 +983,7 @@ int main() {
             // float circleSize = particles[i].getMass()/1.989e30; 
             float circleSize;// = std::log(particles[i].getMass())/std::log((1.989e34))*2;
             // circleSize = 0.3f * cbrt(particles[i].getMass()/totalMass);
-            circleSize = GetVisualRadius(particles[i].getMass());
+            circleSize = GetVisualRadius(particles[i].getMass(), sim.getTotalMass(), sim.getMinMass(), sim.getMaxMass(), particles.size());
 
             // if (particles[i].getMass() > 1e37) {
             //     circleSize = 0.4f;
@@ -857,7 +1000,7 @@ int main() {
             // else if (i == particles.size()-1) {
             //     circleColor = RED;
             // }
-            if (drawTrails) {
+            if (settings.drawTrails) {
                 DrawTrail(particles[i]);
             }
             DrawSphere(pposV3,circleSize,circleColor);
@@ -866,7 +1009,7 @@ int main() {
         EndMode3D();
 
         EndDrawing();
-        update();
+        sim.update();
     }
 
     CloseWindow();
