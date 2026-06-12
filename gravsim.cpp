@@ -2,9 +2,7 @@
 //2 -- g++ gravsim.cpp -o gravsim.exe -I include -L lib -static -static-libgcc -static-libstdc++ -lraylib -lopengl32 -lgdi32 -lwinmm
 //3 Optimised g++ -O2 gravsim.cpp -o gravsim.exe -I include -L lib -lraylib -lgdi32 -lwinmm -static-libgcc -static-libstdc++ -static
 //4 g++ -O3 gravsim.cpp -o gravsim.exe -I include -L lib -lraylib -lgdi32 -lwinmm -static-libgcc -static-libstdc++ -static
-//5 With Warning g++ -std=c++20 -Wall -Wextra -Wpedantic -O2 gravsim.cpp -o gravsim.exe \
-    -I include -L lib -lraylib -lgdi32 -lwinmm \
-    -static-libgcc -static-libstdc++ -static
+//5 With Warning -- g++ -std=c++20 -Wall -Wextra -Wpedantic -O3 gravsim.cpp -o gravsim.exe -I include -L lib -lraylib -lgdi32 -lwinmm -static-libgcc -static-libstdc++ -static
 
 //To-Do
 //Raygui Dropdown Class
@@ -27,7 +25,9 @@ const double pi = 3.141592653589793;
 const double G = 6.67430e-11;
 const double epsilon = 5e13;
 const double M0 = 1.989e30; //kg
-bool enableCentralMass = true;
+const double secondsPerYear = 365.25 * 24.0 * 60.0 * 60.0;
+// bool enableCentralMass = true;
+// int selectedColourOption = 0;
 
 //Initialise random generator
 // std::mt19937 gen(3);
@@ -365,14 +365,15 @@ std::vector<Color> colourList = {RED,GREEN,BLUE,ORANGE,PURPLE,GREEN,MAGENTA,SKYB
 struct UserSettings {
     //Directly Modifiable
     //Toggles
-    bool randomColours = false;
-    bool distanceColours = true;
+    // bool randomColours = false;
+    // bool distanceColours = false;
     bool enableCentralMass = true;
     bool drawTrails = true;
     //Values
     int particleN = 300;
     double plotSize = 2e15;
     int maxTrailLength = 20;
+    int selectedColourOption = 1;
 };
 
 class Simulation {
@@ -386,6 +387,7 @@ private:
     double totalMass = 0.0;
     double maxMass = 0.0; //Initialise maximum present mass, determined after particles created
     double minMass = 1e64; //As above for minimum mass
+    double currentTime = 0.0;
 
 public:
     Simulation(const UserSettings& settings)
@@ -399,17 +401,37 @@ public:
 private:
     //Colour options
     void colour_options() {
-        if (settings.randomColours) {
-            for (Particle& particle : particles) {
-                particle.setColour(randomColour(colourList));
-            }
-        }
+        // if (settings.randomColours) {
+        //     for (Particle& particle : particles) {
+        //         particle.setColour(randomColour(colourList));
+        //     }
+        // }
 
-        else if (settings.distanceColours) {
-            for (Particle& particle : particles) {
-                particle.setColour(distanceColour(particle, settings.plotSize));
-            }
-        }
+        // else if (settings.distanceColours) {
+        //     for (Particle& particle : particles) {
+        //         particle.setColour(distanceColour(particle, settings.plotSize));
+        //     }
+        // }
+
+        switch (settings.selectedColourOption) {
+            case 0:
+                break;
+            case 1:
+                for (Particle& particle : particles) {
+                    particle.setColour(randomColour(colourList));
+                }
+                break;
+            case 2:
+                for (Particle& particle : particles) {
+                    particle.setColour(distanceColour(particle, settings.plotSize));
+                }
+                break;
+            default:
+                break;
+        } 
+
+
+
 
         if (particles.empty() == false && settings.enableCentralMass) {
             particles.back().setColour(YELLOW);
@@ -565,6 +587,7 @@ public:
                 particles[i].trail.erase(particles[i].trail.begin());
             }
         }
+        currentTime+=timestep;
     }
 
     const std::vector<Particle>& getParticles() const {
@@ -589,6 +612,10 @@ public:
 
     bool shouldDrawTrails() const {
         return settings.drawTrails;
+    }
+
+    double getCurrentTimeYears() const {
+        return currentTime / secondsPerYear;
     }
 };
 
@@ -762,6 +789,27 @@ float GetVisualRadius(double mass, double totalMass, double minMass, double maxM
     // return Clamp(radius, 0.01f, 0.5f);
     return minRadius + t * (maxRadius-minRadius);
 }
+// Modified
+float GetVisualRadius(double mass) {
+    float minRadius = 0.01f;
+    float maxRadius = 0.4f;
+
+    double visualMinMass = 1e33;
+    double visualMaxMass = 1e40;
+
+    double logMin = std::log10(visualMinMass);
+    double logMax = std::log10(visualMaxMass);
+    double logMass = std::log10(mass);
+
+    float t = static_cast<float>((logMass - logMin) / (logMax - logMin));
+
+    t = Clamp(t, 0.0f, 1.0f);
+    t = std::pow(t, 1.4f);
+
+    return minRadius + t * (maxRadius - minRadius);
+}
+
+
 
 void DrawTrail(const Particle &particle) {
     for (int i = 1; i < particle.trail.size(); i++) {
@@ -877,9 +925,93 @@ public:
     }
 };
 
+enum class ColourOptions {
+    White,
+    RandomColours,
+    DistanceColours
+};
+
+struct DropdownOptionSetup {
+    std::string display_name;
+    int option_number;
+    std::string description;
+};
+
+
+class Dropdown {
+private:
+    std::string name;
+    std::string dropdownText;
+    bool editMode = false;
+    std::string allOptionNames;
+    int& selectedOption;
+    std::vector<DropdownOptionSetup> options;
+
+
+public:
+    int height = 80;
+
+    Dropdown(int &value, std::string dropdownTitle) :
+        selectedOption(value), dropdownText(dropdownTitle)  {
+
+    }
+
+    void addOption(DropdownOptionSetup option) {
+        options.push_back(option);
+        if (allOptionNames.empty()) {
+            allOptionNames = option.display_name;
+        }
+        else {
+            allOptionNames += ";" + option.display_name;
+        }
+    }
+
+    void draw(float yposition) {
+        // bool ticked = *outputValue;
+
+        //Draw slider - set position and limits
+        // GuiSlider(Rectangle{40, yposition, 300, 20}, lowLimitStr.c_str(), highLimitStr.c_str(), &sliderValue, static_cast<float>(lowLimit), static_cast<float>(highLimit));
+        // GuiCheckBox(Rectangle{40, yposition, 20, 20}, TextFormat("%s", tickboxText.c_str()), &ticked);
+        DrawText(TextFormat("%s:", dropdownText.c_str()), 40, yposition, 10, DARKGRAY);
+
+
+
+        // //Set public value to slider value
+        // *outputValue = ticked;
+        DrawText(TextFormat("%s", options[selectedOption].description.c_str()), 40, yposition+50, 10, DARKGRAY);
+
+
+        // if (GuiDropdownBox(Rectangle{150, yposition-10, 150, 30}, allOptionNames.c_str(), &selectedOption, editMode)) {
+        //     editMode = !editMode;
+        // }
+        if (GuiDropdownBox(Rectangle{40, yposition+15, 150, 30}, allOptionNames.c_str(), &selectedOption, editMode)) {
+            editMode = !editMode;
+        }
+    }
+};
+
+void DrawGridUnitOverlay(double plotSize)
+{
+    double metresPerGridUnit = plotSize / 10.0;
+
+    DrawRectangle(10, 1120, 250, 45, Fade(BLACK, 0.6f));
+
+    DrawText(TextFormat("1 grid unit = %.3e m", metresPerGridUnit),15,1132,20,RAYWHITE);
+}
+
+void DrawTimeOverlay(double elapsedYears)
+{
+    DrawRectangle(10, 10, 250, 45, Fade(BLACK, 0.6f));
+
+    DrawText(TextFormat("Elapsed time: %.2f years", elapsedYears),15,22,20,RAYWHITE);
+}
+
 void OpenSetupGUI(UserSettings& settings) {
     //Open Settings GUI
-    InitWindow(500, 500, "Gravity Simulation Settings");
+    float WINDOW_HEIGHT = 700;
+    float WINDOW_WIDTH = 500;
+
+    InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Gravity Simulation Settings");
     SetTargetFPS(60);
 
     IntSlider nSlider = IntSlider(settings.particleN, "20", "400", 20, 400, "Total Particles");
@@ -888,7 +1020,15 @@ void OpenSetupGUI(UserSettings& settings) {
     LogSlider plotsizeSlider = LogSlider(settings.plotSize, "2e14", "2e16", 2e14, 2e16, "Cluster Size (m)");
     bool startPressed = false;
     Tickbox drawTrailsTick = Tickbox(settings.drawTrails, "Enable Trails");
-    Tickbox randomColoursTick = Tickbox(settings.randomColours, "Random Colours");
+    // Tickbox randomColoursTick = Tickbox(settings.randomColours, "Random Colours");
+
+    
+    Dropdown colourChoice = Dropdown(settings.selectedColourOption,"Colour Scheme");
+    colourChoice.addOption({"White", 0, "All generated particles white"});
+    colourChoice.addOption({"Random", 1, "All generated particles assigned random colours"});
+    colourChoice.addOption({"Distance", 2, "Particles grouped and coloured by distanced from centre"});
+
+
     while (!WindowShouldClose() && !startPressed) {
         BeginDrawing();
 
@@ -915,13 +1055,16 @@ void OpenSetupGUI(UserSettings& settings) {
         }
 
         // GuiCheckBox(Rectangle{40, 320, 20, 20}, "Random Colours", &randomColours);
-        randomColoursTick.draw(nextYpos);
-        nextYpos += randomColoursTick.height;
+        // randomColoursTick.draw(nextYpos);
+        // nextYpos += randomColoursTick.height;
 
         centralMassTick.draw(nextYpos);
         nextYpos += centralMassTick.height;
 
-        if (GuiButton(Rectangle{40, 400, 140, 35}, "Start")) {
+        colourChoice.draw(nextYpos);
+        nextYpos += colourChoice.height;
+
+        if (GuiButton(Rectangle{40, WINDOW_HEIGHT-50, 140, 35}, "Start")) {
             startPressed = true;
             }
 
@@ -1000,7 +1143,8 @@ int main() {
             // float circleSize = particles[i].getMass()/1.989e30; 
             float circleSize;// = std::log(particles[i].getMass())/std::log((1.989e34))*2;
             // circleSize = 0.3f * cbrt(particles[i].getMass()/totalMass);
-            circleSize = GetVisualRadius(particles[i].getMass(), sim.getTotalMass(), sim.getMinMass(), sim.getMaxMass(), particles.size());
+            // circleSize = GetVisualRadius(particles[i].getMass(), sim.getTotalMass(), sim.getMinMass(), sim.getMaxMass(), particles.size());
+            circleSize = GetVisualRadius(particles[i].getMass());
 
             // if (particles[i].getMass() > 1e37) {
             //     circleSize = 0.4f;
@@ -1008,12 +1152,12 @@ int main() {
             Vector3 pposV3 = ToVector3({px,py,pz});
 
             Color circleColor = particles[i].getColour();
-            if (i == 0) {
-                circleColor = GREEN;
-            }
-            else if (i == particles.size()-1) {
-                circleColor = YELLOW;
-            }
+            // if (i == 0) {
+            //     circleColor = GREEN;
+            // }
+            // else if (i == particles.size()-1) {
+            //     circleColor = YELLOW;
+            // }
             // else if (i == particles.size()-1) {
             //     circleColor = RED;
             // }
@@ -1024,6 +1168,9 @@ int main() {
         }
 
         EndMode3D();
+
+        DrawTimeOverlay(sim.getCurrentTimeYears());
+        DrawGridUnitOverlay(settings.plotSize);
 
         EndDrawing();
         sim.update();
