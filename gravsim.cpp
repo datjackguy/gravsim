@@ -6,6 +6,11 @@
     -I include -L lib -lraylib -lgdi32 -lwinmm \
     -static-libgcc -static-libstdc++ -static
 
+//To-Do
+//Raygui Dropdown Class
+//Colour options enum
+//Presets enum
+
 #include <iostream>
 #include <cmath>
 #include <vector>
@@ -389,7 +394,7 @@ public:
         momentum_centre();
         create_particle_pairs();
         colour_options();
-        
+
     }
 private:
     //Colour options
@@ -400,13 +405,13 @@ private:
             }
         }
 
-        if (settings.distanceColours) {
+        else if (settings.distanceColours) {
             for (Particle& particle : particles) {
                 particle.setColour(distanceColour(particle, settings.plotSize));
             }
         }
 
-        if (particles.empty() == false && settings.enableCentralMass == false) {
+        if (particles.empty() == false && settings.enableCentralMass) {
             particles.back().setColour(YELLOW);
         }
     }
@@ -664,6 +669,20 @@ void UpdateOrbitCamera(Camera3D& camera, float& yaw, float& pitch, float& distan
     if (distance > 40.0f)
     {
         distance = 40.0f;
+    }
+
+    //Move Camera Target
+    if (IsKeyDown(KEY_LEFT)) {
+        camera.target.x -= 0.1f;
+    }
+    if (IsKeyDown(KEY_RIGHT)) {
+        camera.target.x += 0.1f;
+    }
+    if (IsKeyDown(KEY_UP)) {
+        camera.target.z -= 0.1f;
+    }
+    if (IsKeyDown(KEY_DOWN)) {
+        camera.target.z += 0.1f;
     }
 
     // Convert yaw, pitch and distance into a 3D camera position.
@@ -946,18 +965,16 @@ int main() {
 
     SetTargetFPS(60);
 
-    std::vector<Particle> particles;
+    const std::vector<Particle> &particles = sim.getParticles();
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
         float time = GetTime();
 
-        particles = sim.getParticles();
-
         UpdateOrbitCamera(camera, cameraYaw, cameraPitch, cameraDistance);
 
-        UpdateParticlePos(particles[particles.size()-1], settings);
+        // UpdateParticlePos(particles[particles.size()-1], settings);
 
-        UpdateParticleMass(particles[particles.size()-1]);
+        // UpdateParticleMass(particles[particles.size()-1]);
 
         BeginDrawing();
 
