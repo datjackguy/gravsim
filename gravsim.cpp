@@ -5,9 +5,8 @@
 //5 With Warning -- g++ -std=c++20 -Wall -Wextra -Wpedantic -O3 gravsim.cpp -o gravsim.exe -I include -L lib -lraylib -lgdi32 -lwinmm -static-libgcc -static-libstdc++ -static
 
 //To-Do
-//Raygui Dropdown Class
 //Colour options enum
-//Presets enum
+//Presets enum - Solar System (Plus Pluto, Moon and Asteroid Belt), Jupiter system, Globular Cluster, Milky Way Scale, Milky Way / Andromeda Collision 
 
 #include <iostream>
 #include <cmath>
@@ -26,6 +25,8 @@ const double G = 6.67430e-11;
 const double epsilon = 5e13;
 const double M0 = 1.989e30; //kg
 const double secondsPerYear = 365.25 * 24.0 * 60.0 * 60.0;
+const double AUpermetre = 1/1.496e11;
+const double pcpermetre = 1/3.086e16;
 // bool enableCentralMass = true;
 // int selectedColourOption = 0;
 
@@ -252,18 +253,34 @@ std::vector<double> generate_masses(int N) {
 
 // Generate position of individual particle within sphere* of maxRad
 Vect3 randomSph(double maxRad) {
-    double rho = randomDouble(maxRad/20,maxRad);
-    double theta = randomDouble(0.0,pi);
+    // double rho = randomDouble(maxRad/20,maxRad);
+    // double theta = randomDouble(0.0,pi);
+    // double phi = randomDouble(0.0, 2*pi);
+    // double x = rho * std::sin(theta) * std::cos(phi);
+    // double y = 0.4 * rho * std::sin(theta) * std::sin(phi);
+    // double z = rho * std::cos(theta);
+    // Vect3 vector;
+    // vector.x = x;
+    // vector.y = y;
+    // vector.z = z;
+
+    // return vector;
+
+    double u = randomDouble(0.0,1.0);
+    double rho = maxRad * std::cbrt(u);
+
+    double cosTheta = randomDouble(-1.0, 1.0);
+    double sinTheta = std::sqrt(1.0 - cosTheta * cosTheta);
     double phi = randomDouble(0.0, 2*pi);
-    double x = rho * std::sin(theta) * std::cos(phi);
-    double y = 0.4 * rho * std::sin(theta) * std::sin(phi);
-    double z = rho * std::cos(theta);
+
     Vect3 vector;
-    vector.x = x;
-    vector.y = y;
-    vector.z = z;
+    
+    vector.x = rho * sinTheta * std::cos(phi);
+    vector.y = 0.4 * rho * sinTheta * std::sin(phi);
+    vector.z = rho * cosTheta;
 
     return vector;
+
 }
 
 
@@ -390,16 +407,23 @@ private:
     double minMass = 1e64; //As above for minimum mass
     double currentTime = 0.0;
 
+    bool forcesExist = false;
+
 public:
     Simulation(const UserSettings& settings)
         : settings(settings) {
         initialise_particles();
         momentum_centre();
-        create_particle_pairs();
+        // create_particle_pairs();
         colour_options();
 
     }
 private:
+    void resetForces() {
+        for (Particle& particle : particles) {
+            particle.resetForce();
+        }
+    }
     //Colour options
     void colour_options() {
         // if (settings.randomColours) {
@@ -454,7 +478,7 @@ private:
             particles.push_back(Particle(5e38, zero, zero));
         }
         // particles.push_back(Particle(6e38, Vect3{2e15, 0, 2e15}, 0.2*globularVel(Vect3{2e15, 0, 2e15}, 5e38)));
-        // particles.push_back(Particle(6e38, Vect3{-2e15, 0, -2e15}, 0.2*globularVel(Vect3{-2e15, 0, -2e15}, 5e38)));
+        // particles.push_back(Particle(6e38, Vect3{-2e15, 0, -2e15}, 0.22*globularVel(Vect3{-2e15, 0, -2e15}, 5e38)));
         updateMassLimits();
 
         for (int i = 0; i < settings.particleN; i++) {
@@ -559,19 +583,50 @@ private:
         return force;
     }
 
+    void calculateForces() {
+        resetForces();
+
+        for (int i = 0; i < particles.size(); i++) {
+            for (int j = i+1; j < particles.size(); j++) {
+                Vect3 force = forceCalc(particles[i],particles[j]);
+                particles[i].addForce(force);
+                particles[j].addForce(force, -1);
+            }
+        }
+    }
+
 public:
     //Update the simulation for each timestep
     void update() {
-        for (int p = 0; p < particlePairs.size(); p++) {
-            Vect3 force = forceCalc(particles[particlePairs[p][0]],particles[particlePairs[p][1]]);
+        // for (int p = 0; p < particlePairs.size(); p++) {
+        //     Vect3 force = forceCalc(particles[particlePairs[p][0]],particles[particlePairs[p][1]]);
 
-            particles[particlePairs[p][0]].addForce(force);
-            particles[particlePairs[p][1]].addForce(force, -1);
+        //     particles[particlePairs[p][0]].addForce(force);
+        //     particles[particlePairs[p][1]].addForce(force, -1);
+        // }
+        if (forcesExist == false) {
+            calculateForces();
+            forcesExist = true;
         }
+
         for (int i = 0; i < particles.size(); i++) {
-            particles[i].calcVel(timestep);
+            particles[i].calcVel(timestep/2);
+        }
+
+        for (int i = 0; i < particles.size(); i++) {
             particles[i].calcPos(timestep);
-            particles[i].resetForce();
+        }
+
+        calculateForces();
+
+        for (int i = 0; i < particles.size(); i++) {
+            particles[i].calcVel(timestep/2);
+        }
+
+        for (int i = 0; i < particles.size(); i++) {
+            // particles[i].calcVel(timestep);
+            // particles[i].calcPos(timestep);
+            // particles[i].resetForce();
 
             Vect3 pos = particles[i].getPos();
             float renderScale = 10.0f / settings.plotSize;
@@ -995,9 +1050,9 @@ void DrawGridUnitOverlay(double plotSize)
 {
     double metresPerGridUnit = plotSize / 10.0;
 
-    DrawRectangle(10, GetScreenHeight()-80, 250, 45, Fade(BLACK, 0.6f));
+    DrawRectangle(10, GetScreenHeight()-80, 500, 45, Fade(BLACK, 0.6f));
 
-    DrawText(TextFormat("1 grid unit = %.3e m", metresPerGridUnit),15,GetScreenHeight()-68,20,RAYWHITE);
+    DrawText(TextFormat("1 grid unit = %.1e m / %.1e AU / %.1epc", metresPerGridUnit,metresPerGridUnit*AUpermetre,metresPerGridUnit*pcpermetre),15,GetScreenHeight()-68,20,RAYWHITE);
 }
 
 void DrawTimeOverlay(double elapsedYears)
@@ -1015,7 +1070,7 @@ void OpenSetupGUI(UserSettings& settings) {
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Gravity Simulation Settings");
     SetTargetFPS(60);
 
-    IntSlider nSlider = IntSlider(settings.particleN, "20", "400", 20, 400, "Total Particles");
+    IntSlider nSlider = IntSlider(settings.particleN, "20", "1000", 20, 1000, "Total Particles");
     IntSlider trailSlider = IntSlider(settings.maxTrailLength, "1", "100", 0.0f, 100.0f, "Trail Length");
     Tickbox centralMassTick = Tickbox(settings.enableCentralMass, "Central Mass");
     LogSlider plotsizeSlider = LogSlider(settings.plotSize, "2e14", "2e16", 2e14, 2e16, "Cluster Size (m)");
