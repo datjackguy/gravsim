@@ -374,6 +374,7 @@ struct UserSettings {
     double plotSize = 2e15;
     int maxTrailLength = 20;
     int selectedColourOption = 1;
+    int selectedWindowSize = 0;
 };
 
 class Simulation {
@@ -994,9 +995,9 @@ void DrawGridUnitOverlay(double plotSize)
 {
     double metresPerGridUnit = plotSize / 10.0;
 
-    DrawRectangle(10, 1120, 250, 45, Fade(BLACK, 0.6f));
+    DrawRectangle(10, GetScreenHeight()-80, 250, 45, Fade(BLACK, 0.6f));
 
-    DrawText(TextFormat("1 grid unit = %.3e m", metresPerGridUnit),15,1132,20,RAYWHITE);
+    DrawText(TextFormat("1 grid unit = %.3e m", metresPerGridUnit),15,GetScreenHeight()-68,20,RAYWHITE);
 }
 
 void DrawTimeOverlay(double elapsedYears)
@@ -1093,7 +1094,26 @@ int main() {
     int windowWidth = 1200;
     int windowHeight = 1200;
 
+
+
+
+
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(windowWidth, windowHeight, "Gravity Simulation");
+    SetWindowMinSize(500,500);
+
+    int monitor = GetCurrentMonitor();
+    int monitorHeight = GetMonitorHeight(monitor);
+    int monitorWidth = GetMonitorWidth(monitor);
+    Vector2 monitorPos = GetMonitorPosition(monitor);
+
+    if (monitorHeight < windowHeight || monitorWidth < windowWidth) {
+        windowWidth = static_cast<int>(monitorHeight * 0.80f);
+        windowHeight = static_cast<int>(monitorHeight * 0.80f);
+
+    }
+    SetWindowSize(windowWidth,windowHeight);
+    SetWindowPosition(static_cast<int>(monitorPos.x + (monitorWidth - windowWidth) / 2),static_cast<int>(monitorPos.y + (monitorHeight - windowHeight) / 2));
 
     Camera3D camera = {};
 
