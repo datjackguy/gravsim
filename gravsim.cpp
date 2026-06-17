@@ -287,7 +287,7 @@ std::vector<double> generate_masses(int N) {
                 mass_candidate = x_candidate;
             }
         }
-        masses[i] = 3e4*M0*mass_candidate;
+        masses[i] = M0*mass_candidate;
     }
     return masses;
 }
@@ -436,6 +436,25 @@ Vect3 diskVelocity(Vect3 pos, double orbitMass, Vect3 axis) {
     return tangent * speed;
 }
 
+Vect3 diskVelocity(Vect3 pos, double orbitMass, Vect3 axis, double softening) {
+    Vect3 n = axis.normalise();
+
+    Vect3 radial = pos - n * pos.dot(n);
+    double orbitalRadius = radial.magnitude();
+
+    Vect3 tangent = n.cross(radial).normalise();
+
+    double distanceFromCentre = pos.magnitude();
+
+    double softenedDistance2 = distanceFromCentre * distanceFromCentre + softening * softening;
+
+    double softenedDistance = std::sqrt(softenedDistance2);
+
+    double speed = std::sqrt(G * orbitMass * orbitalRadius * orbitalRadius / (softenedDistance2 * softenedDistance));
+
+    return tangent * speed;
+}
+
 
 
 Color distanceColour(const Particle& particle, double plotSize) {
@@ -531,6 +550,8 @@ public:
         centrepos(centrepos), vel(vel), axis(axis), flattening(flattening), particleCount(particleCount), radius(radius) {
         
         initialise_particles();
+        // assignVelocities();
+        // reframeParticles();
     
     }
     //Calculate total mass within the radius of a particle
@@ -557,21 +578,6 @@ public:
             particles.push_back(Particle{mass,centrepos,vel});
             centralMassExists=true;
         }
-
-        //Recalculate Velocities
-        for (int i = 0; i < particleCount; i++) {
-            double encMass = enclosedMass(particles[i]);
-            Vect3 currentPos = particles[i].getPos();
-
-            Vect3 particlevel = diskVelocity(currentPos-centrepos,encMass,axis);
-
-            particles[i].setVel(particlevel);
-        }
-
-        for (int i = 0; i < particleCount; i++) {
-            particles[i].setVel(particles[i].getVel()+vel);
-        }
-
     }
     //Create all particle objects
     void initialise_particles() {
@@ -583,25 +589,76 @@ public:
             particles.push_back(Particle(masses[i],particlepos,particlevel));
         }
 
+    }
+
+    void assignVelocities() {
+        double clusterSoftening = maxSoftening();
 
         for (int i = 0; i < particleCount; i++) {
             double encMass = enclosedMass(particles[i]);
             Vect3 currentPos = particles[i].getPos();
 
-            Vect3 particlevel = diskVelocity(currentPos,encMass,axis);
+            Vect3 particlevel = diskVelocity(currentPos,encMass,axis,clusterSoftening);
 
             particles[i].setVel(particlevel);
         }
+    }
 
+    void reframeParticles() {
         for (int i = 0; i < particleCount; i++) {
             particles[i].setPos(particles[i].getPos()+centrepos);
             particles[i].setVel(particles[i].getVel()+vel);
         }
-
     }
     
     std::vector<Particle> getParticleList() {
         return particles;
+    }
+
+    void configureSoftening(double plotSize) {
+
+        std::vector<double> masses;
+        masses.reserve(particles.size());
+
+        for (const Particle& particle : particles) {
+            masses.push_back(particle.getMass());
+        }
+
+        std::sort(masses.begin(), masses.end());
+
+        double referenceMass = masses[masses.size() / 2];
+
+        double approximateSpacing = plotSize / std::cbrt(particles.size());
+        double baseSoftening = 0.05 * approximateSpacing;
+
+        double minAllowedSoftening = 0.25 * baseSoftening;
+        double maxAllowedSoftening = 5.0 * baseSoftening;
+
+        for (Particle& particle : particles) {
+            double massRatio = particle.getMass() / referenceMass;
+
+            double massScale = std::cbrt(massRatio);
+            massScale = clampDouble(massScale, 0.5, 10.0);
+
+            double particleSoftening = baseSoftening * massScale;
+
+            particleSoftening = clampDouble(
+                particleSoftening,
+                minAllowedSoftening,
+                maxAllowedSoftening
+            );
+
+            particle.setSoftening(particleSoftening);
+        }
+    }
+    double maxSoftening() const {
+        double maxSoft = 0.0;
+
+        for (const Particle& particle : particles) {
+            maxSoft = std::max(maxSoft, particle.getSoftening());
+        }
+
+        return maxSoft;
     }
 };
 
@@ -668,7 +725,8 @@ public:
         updateMassLimits();
         momentum_centre();
 
-        configureSoftening();
+        // configureSoftening();
+        configureTimestep();
         // create_particle_pairs();
         colour_options();
 
@@ -718,6 +776,13 @@ private:
             particle.setSoftening(particleSoftening);
         }
     }
+    void configureTimestep() {
+        double systemRadius = 0.5 * settings.user.plotSize;
+
+        double dynamicalTime = std::sqrt((systemRadius * systemRadius * systemRadius) / (G * totalMass));
+
+        timestep = dynamicalTime / 300.0;
+    }
     //Colour options
     void colour_options() {
         // if (settings.randomColours) {
@@ -760,8 +825,13 @@ private:
         if (settings.init.clusterCount == 1) {
             Cluster cluster1(Vect3{0,0,0}, Vect3{0,0,0}, Vect3{0,1,0}, 0.5, settings.user.particleN, settings.user.plotSize/2);
             if (settings.user.enableCentralMass) {
-                cluster1.AddCentralMass(5e38);
+                cluster1.AddCentralMass(5e33);
             }
+
+            cluster1.configureSoftening(settings.user.plotSize);
+            cluster1.assignVelocities();
+            cluster1.reframeParticles();
+
             std::vector<Particle> clusterParticles = cluster1.getParticleList();
             particles.insert(particles.end(),clusterParticles.begin(),clusterParticles.end());
         }
@@ -776,8 +846,13 @@ private:
 
                 Cluster cluster(clusterCentre,clusterVelocity,clusterAxis,clusterFlattening,split[c],clusterRadius);
                 if (settings.user.enableCentralMass) {
-                    cluster.AddCentralMass(5e38);
+                    cluster.AddCentralMass(5e33);
                 }
+
+                cluster.configureSoftening(settings.user.plotSize);
+                cluster.assignVelocities();
+                cluster.reframeParticles();
+
                 std::vector<Particle> clusterParticles = cluster.getParticleList();
                 particles.insert(particles.end(),clusterParticles.begin(),clusterParticles.end());
             }
@@ -795,7 +870,7 @@ private:
         }
         if (settings.user.enableCentralMass) {
             Vect3 zero{0,0,0};
-            particles.push_back(Particle(5e38, zero, zero));
+            particles.push_back(Particle(5e32, zero, zero));
         }
         // particles.push_back(Particle(6e38, Vect3{2e15, 0, 2e15}, 0.2*globularVel(Vect3{2e15, 0, 2e15}, 5e38)));
         // particles.push_back(Particle(6e38, Vect3{-2e15, 0, -2e15}, 0.22*globularVel(Vect3{-2e15, 0, -2e15}, 5e38)));
@@ -1023,6 +1098,9 @@ public:
     double getAverageUpdateMs() const {
         return averageUpdateMs;
     }
+    double getTimestepYears() const {
+        return timestep / secondsPerYear;
+    }
 };
 
 
@@ -1159,8 +1237,8 @@ float GetVisualRadius(double mass) {
     float minRadius = 0.01f;
     float maxRadius = 0.4f;
 
-    double visualMinMass = 1e33;
-    double visualMaxMass = 1e40;
+    double visualMinMass = 1e29;
+    double visualMaxMass = 1e33;
 
     double logMin = std::log10(visualMinMass);
     double logMax = std::log10(visualMaxMass);
@@ -1364,11 +1442,15 @@ void DrawGridUnitOverlay(double plotSize)
     DrawText(TextFormat("1 grid unit = %.1e m / %.1e AU / %.1epc", metresPerGridUnit,metresPerGridUnit*AUpermetre,metresPerGridUnit*pcpermetre),15,GetScreenHeight()-68,20,RAYWHITE);
 }
 
-void DrawTimeOverlay(double elapsedYears)
+void DrawTimeOverlay(double elapsedYears, double timestepYears, double yearsPerSecond)
 {
-    DrawRectangle(10, 10, 250, 45, Fade(BLACK, 0.6f));
+    DrawRectangle(10, 10, 360, 95, Fade(BLACK, 0.6f));
 
-    DrawText(TextFormat("Elapsed time: %.2f years", elapsedYears),15,22,20,RAYWHITE);
+    DrawText(TextFormat("Elapsed time: %.2f years", elapsedYears), 15, 22, 20, RAYWHITE);
+
+    DrawText(TextFormat("Timestep: %.3e years", timestepYears), 15, 47, 20, RAYWHITE);
+
+    DrawText(TextFormat("Rate: %.3e years/s", yearsPerSecond), 15, 72, 20, RAYWHITE);
 }
 
 void DrawPerformanceOverlay(double lastUpdateMs, double averageUpdateMs)
@@ -1437,7 +1519,7 @@ void OpenSetupGUI(AllSettings& settings) {
     IntSlider nSlider(settings.user.particleN, "20", "1000", 20, 1000, "Total Particles");
     IntSlider trailSlider(settings.user.maxTrailLength, "1", "100", 0.0f, 100.0f, "Trail Length");
     Tickbox centralMassTick(settings.user.enableCentralMass, "Central Mass");
-    LogSlider plotsizeSlider(settings.user.plotSize, "2e14", "2e16", 2e14, 2e16, "Cluster Size (m)");
+    LogSlider plotsizeSlider(settings.user.plotSize, "2e10", "2e20", 2e10, 2e20, "Plot Size (m)");
     Tickbox drawTrailsTick(settings.user.drawTrails, "Enable Trails");
 
     IntSlider clusterSlider(settings.init.clusterCount, "1", "10", 1, 10, "Number of Clusters");
@@ -1618,7 +1700,13 @@ int main() {
 
         EndMode3D();
 
-        DrawTimeOverlay(sim.getCurrentTimeYears());
+        double yearsPerSecond = 0.0;
+
+        if (dt > 0.0f) {
+            yearsPerSecond = sim.getTimestepYears() / dt;
+        }
+
+        DrawTimeOverlay(sim.getCurrentTimeYears(), sim.getTimestepYears(), yearsPerSecond);
         DrawGridUnitOverlay(settings.user.plotSize);
         DrawPerformanceOverlay(sim.getLastUpdateMs(), sim.getAverageUpdateMs());
 
