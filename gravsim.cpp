@@ -7,6 +7,7 @@
 //To-Do
 //Colour options enum
 //Presets enum - Solar System (Plus Pluto, Moon and Asteroid Belt), Jupiter system, Globular Cluster, Milky Way Scale, Milky Way / Andromeda Collision 
+//Timestep/Softening Automation
 
 #include <iostream>
 #include <cmath>
@@ -23,7 +24,7 @@
 
 const double pi = 3.141592653589793;
 const double G = 6.67430e-11;
-const double epsilon = 5e13;
+// const double epsilon = 5e13;
 const double M0 = 1.989e30; //kg
 const double secondsPerYear = 365.25 * 24.0 * 60.0 * 60.0;
 const double AUpermetre = 1/1.496e11;
@@ -60,6 +61,11 @@ int randomSign() {
 Color randomColour(const std::vector<Color>&colourList) {
     int colouri = randomInteger(0,colourList.size()-1);
     return colourList[colouri];
+}
+
+double clampDouble(double value, double low, double high)
+{
+    return std::max(low, std::min(value, high));
 }
 
 
@@ -176,6 +182,7 @@ private:
     Vect3 vel;
     Vect3 force;
     Color colour = WHITE;
+    double softening = 0.0;
 
 public:
     std::vector<Vector3> trail;
@@ -239,6 +246,14 @@ public:
 
     void setVel(Vect3 newVel) {
         vel = newVel;
+    }
+
+    void setSoftening(double newSoft) {
+        softening = newSoft;
+    }
+
+    double getSoftening() const {
+        return softening;
     }
 };
 
@@ -519,19 +534,22 @@ public:
     
     }
     //Calculate total mass within the radius of a particle
-    double enclosedMass(const Particle &particle) const {
-        Vect3 ppos = particle.getPos();
+    double enclosedMass(const Particle& particle) const {
+        Vect3 relativePos = particle.getPos() - centrepos;
+        double radius = relativePos.magnitude();
 
-        double radius = pythagoras(ppos);
-        double mass = 0;
+        double mass = 0.0;
+
         for (int p = 0; p < particles.size(); p++) {
-            Vect3 currentPos = particles[p].getPos();
+            Particle other = particles[p];
+            Vect3 otherRelativePos = other.getPos() - centrepos;
+            double otherRadius = otherRelativePos.magnitude();
 
-            double currentRadius = pythagoras(currentPos);
-            if (currentRadius < radius) {
-                mass += particles[p].getMass();
+            if (otherRadius < radius) {
+                mass += other.getMass();
             }
         }
+
         return mass;
     }
     void AddCentralMass(double mass) {
@@ -628,12 +646,19 @@ private:
     std::vector<std::vector<int>> particlePairs;
 
     double timestep = 0.5*10*24*60*60;
+    double epsilon = 5e13;
+
     double totalMass = 0.0;
     double maxMass = 0.0; //Initialise maximum present mass, determined after particles created
     double minMass = 1e64; //As above for minimum mass
     double currentTime = 0.0;
 
     bool forcesExist = false;
+
+    //Timing
+    double lastUpdateMs = 0.0;
+    double averageUpdateMs = 0.0;
+    bool updateTimingExists = false;
 
 public:
     Simulation(const AllSettings& settings)
@@ -642,6 +667,8 @@ public:
         // initialise_particles();
         updateMassLimits();
         momentum_centre();
+
+        configureSoftening();
         // create_particle_pairs();
         colour_options();
 
@@ -650,6 +677,45 @@ private:
     void resetForces() {
         for (Particle& particle : particles) {
             particle.resetForce();
+        }
+    }
+    double medianMass() const {
+        std::vector<double> masses;
+        masses.reserve(particles.size());
+
+        for (const Particle& particle : particles)
+        {
+            masses.push_back(particle.getMass());
+        }
+
+        std::sort(masses.begin(), masses.end());
+
+        return masses[masses.size() / 2];
+    }
+    void configureSoftening() {
+        // double particleCount = static_cast<double>(particles.size());
+
+        double approximateSpacing = settings.user.plotSize / std::cbrt(particles.size());
+
+        double baseSoftening = 0.05 * approximateSpacing;
+
+        double referenceMass = medianMass();
+
+        double minAllowedSoftening = 0.25 * baseSoftening;
+        double maxAllowedSoftening = 5.0 * baseSoftening;
+
+        for (Particle& particle : particles) {
+            double massRatio = particle.getMass() / referenceMass;
+
+            double massScale = std::cbrt(massRatio);
+
+            massScale = clampDouble(massScale, 0.5, 10.0);
+
+            double particleSoftening = baseSoftening * massScale;
+
+            particleSoftening = clampDouble(particleSoftening, minAllowedSoftening, maxAllowedSoftening);
+
+            particle.setSoftening(particleSoftening);
         }
     }
     //Colour options
@@ -706,8 +772,9 @@ private:
                 Vect3 clusterVelocity{0,0,0};
                 Vect3 clusterAxis = randomAxis();
                 double clusterFlattening = randomDouble(0,1);
+                double clusterRadius = settings.user.plotSize/4;
 
-                Cluster cluster(clusterCentre,clusterVelocity,clusterAxis,clusterFlattening,split[c],settings.user.plotSize/settings.init.clusterCount);
+                Cluster cluster(clusterCentre,clusterVelocity,clusterAxis,clusterFlattening,split[c],clusterRadius);
                 if (settings.user.enableCentralMass) {
                     cluster.AddCentralMass(5e38);
                 }
@@ -831,7 +898,12 @@ private:
 
         Vect3 force;
 
-        force = -G*mass1*mass2*(pos1-pos2)/pow((distance*distance)+(epsilon*epsilon),1.5);
+        double e1 = p1.getSoftening();
+        double e2 = p2.getSoftening();
+
+        double epsilonPair = sqrt(e1*e1+e2*e2);
+
+        force = -G*mass1*mass2*(pos1-pos2)/pow((distance*distance)+(epsilonPair*epsilonPair),1.5);
 
         return force;
     }
@@ -857,6 +929,9 @@ public:
         //     particles[particlePairs[p][0]].addForce(force);
         //     particles[particlePairs[p][1]].addForce(force, -1);
         // }
+
+        const auto updateStart = std::chrono::steady_clock::now();
+
         if (forcesExist == false) {
             calculateForces();
             forcesExist = true;
@@ -897,6 +972,20 @@ public:
             }
         }
         currentTime+=timestep;
+
+        //Timing
+        const auto updateEnd = std::chrono::steady_clock::now();
+
+        lastUpdateMs = std::chrono::duration<double, std::milli>(updateEnd - updateStart).count();
+
+        if (!updateTimingExists) {
+            averageUpdateMs = lastUpdateMs;
+            updateTimingExists = true;
+        }
+        else {
+            averageUpdateMs = 0.95 * averageUpdateMs + 0.05 * lastUpdateMs;
+        }
+
     }
 
     const std::vector<Particle>& getParticles() const {
@@ -925,6 +1014,14 @@ public:
 
     double getCurrentTimeYears() const {
         return currentTime / secondsPerYear;
+    }
+
+    double getLastUpdateMs() const {
+        return lastUpdateMs;
+    }
+
+    double getAverageUpdateMs() const {
+        return averageUpdateMs;
     }
 };
 
@@ -1274,7 +1371,16 @@ void DrawTimeOverlay(double elapsedYears)
     DrawText(TextFormat("Elapsed time: %.2f years", elapsedYears),15,22,20,RAYWHITE);
 }
 
+void DrawPerformanceOverlay(double lastUpdateMs, double averageUpdateMs)
+{
+    DrawRectangle(GetScreenWidth() - 310, 10, 300, 70, Fade(BLACK, 0.6f));
 
+    DrawText(TextFormat("Update: %.3f ms", lastUpdateMs), GetScreenWidth() - 295, 22, 20, RAYWHITE);
+
+    DrawText(TextFormat("Average: %.3f ms", averageUpdateMs), GetScreenWidth() - 295, 47, 20, RAYWHITE);
+
+    DrawText(TextFormat("Updates Per Second: %.1f", 1000/averageUpdateMs), GetScreenWidth() - 295, 72, 20, RAYWHITE);
+}
 
 // void OpenInitialisationGUI(AllSettings& settings) {
 //     //Open Settings GUI
@@ -1514,6 +1620,7 @@ int main() {
 
         DrawTimeOverlay(sim.getCurrentTimeYears());
         DrawGridUnitOverlay(settings.user.plotSize);
+        DrawPerformanceOverlay(sim.getLastUpdateMs(), sim.getAverageUpdateMs());
 
         EndDrawing();
         sim.update();
