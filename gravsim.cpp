@@ -660,6 +660,11 @@ public:
 
         return maxSoft;
     }
+    void setClusterColour(Color colour) {
+        for (Particle& particle : particles) {
+            particle.setColour(colour);
+        }
+    }
 };
 
 
@@ -817,7 +822,7 @@ private:
 
 
 
-        if (particles.empty() == false && settings.user.enableCentralMass) {
+        if (particles.empty() == false && settings.user.enableCentralMass && settings.init.clusterCount == 1) {
             particles.back().setColour(YELLOW);
         }
     }
@@ -847,6 +852,10 @@ private:
                 Cluster cluster(clusterCentre,clusterVelocity,clusterAxis,clusterFlattening,split[c],clusterRadius);
                 if (settings.user.enableCentralMass) {
                     cluster.AddCentralMass(5e33);
+                }
+
+                if (settings.user.selectedColourOption == 3) {
+                    cluster.setClusterColour(randomColour(colourList));
                 }
 
                 cluster.configureSoftening(settings.user.plotSize);
@@ -1528,6 +1537,7 @@ void OpenSetupGUI(AllSettings& settings) {
     colourChoice.addOption({"White", 0, "All generated particles white"});
     colourChoice.addOption({"Random", 1, "All generated particles assigned random colours"});
     colourChoice.addOption({"Distance", 2, "Particles grouped and coloured by distance from centre"});
+    colourChoice.addOption({"Cluster", 3, "Particles in a cluster will have the same colour"});
 
     while (!WindowShouldClose() && !startPressed) {
         BeginDrawing();
