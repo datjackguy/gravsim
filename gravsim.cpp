@@ -38,16 +38,17 @@ enum class ColourOptions {
     White,
     Random,
     Distance,
-    Cluster
+    Cluster,
+    None
 };
 
 enum class SystemPreset {
     Clusters,
     SolarSystem,
+    MilkyWay,
     JupiterMoons,
     GlobularCluster,
     DiskGalaxy,
-    MilkyWay,
     MWandAndromeda,
     EllipticalGalaxy,
     GalaxyCluster,
@@ -386,6 +387,15 @@ Vect3 diskVelocity(Vect3 pos, double orbitMass, Vect3 axis, double softening) {
     return tangent * speed;
 }
 
+struct OneParticleSettings {
+    double mass;
+    Vect3 position; //Set manually
+    Vect3 velocity; //Set manually or automatically if autoOrbit = true;
+    Vect3 axis; //Accounts for inclination and orbit direction
+    double eccentricity;
+    bool autoOrbit;
+    Color particleColour = BLUE;
+};
 
 //Particle Class
 class Particle {
@@ -400,8 +410,8 @@ private:
 public:
     // std::vector<Vector3> trail;
     // Constructor
-    Particle(double mass, Vect3 pos, Vect3 vel)
-        : mass(mass), pos(pos), vel(vel) {
+    Particle(OneParticleSettings settings)
+        : mass(settings.mass), pos(settings.position), vel(settings.velocity), colour(settings.particleColour) {
     }
 
     // Add (or subtract) force from total force acting on particle
@@ -530,14 +540,11 @@ struct ClusterSettings {
     double lowMassBound = 1 * M0;
     double highMassBound = 100 * M0;
     int particleCount;
+    Color clusterColour = PINK;
+    double clusterGeneratedMass;
+    bool rescaleMasses;
 };
 
-struct OneParticleSettings {
-    double mass;
-    Vect3 position;
-    Vect3 velocity;
-
-};
 
 struct AllSettings {
     UserSettings user;
@@ -559,12 +566,15 @@ private:
     int particleCount;
     double radius;
 
+    double genMass;
+    bool rescaleMasses = false;
+
     std::vector<Particle> particles;
     bool centralMassExists = false;
 
 public:
     Cluster(ClusterSettings settings) :
-        centrepos(settings.position), vel(settings.systemVelocity), axis(settings.axis), flattening(settings.flattening), particleCount(settings.particleCount), radius(settings.size) {
+        centrepos(settings.position), vel(settings.systemVelocity), axis(settings.axis), flattening(settings.flattening), particleCount(settings.particleCount), radius(settings.size), genMass(settings.clusterGeneratedMass), rescaleMasses(settings.rescaleMasses) {
         
         initialise_particles();
         // assignVelocities();
@@ -592,19 +602,41 @@ public:
     }
     void AddCentralMass(double mass) {
         if (!centralMassExists) {
-            particles.push_back(Particle{mass,Vect3{0,0,0},Vect3{0,0,0}});
+            OneParticleSettings cmass;
+            cmass.mass = mass;
+            cmass.position = {0,0,0};
+            cmass.velocity = {0,0,0};
+            particles.push_back(Particle(cmass));
             centralMassExists=true;
         }
     }
     //Create all particle objects
     void initialise_particles() {
         std::vector<double> masses = generate_masses(particleCount);
+        if (rescaleMasses) {
+            masses = scaledMasses(masses);
+        }
 
         for (int i = 0; i < particleCount; i++) {
             Vect3 particlepos = generateDisk(radius, flattening, axis);
             Vect3 particlevel{0,0,0};
-            particles.push_back(Particle(masses[i],particlepos,particlevel));
+            OneParticleSettings psettings;
+            psettings.mass = masses[i];
+            psettings.velocity = particlevel;
+            psettings.position = particlepos;
+            particles.push_back(Particle(psettings));
         }
+
+    }
+
+    std::vector<double> scaledMasses(std::vector<double> initialMasses) {
+        double totalMass = std::accumulate(initialMasses.begin(), initialMasses.end(), 0.0);
+        std::vector<double> newMasses;
+        for (size_t i = 0; i < initialMasses.size(); i++) {
+            double newMass = initialMasses[i]/totalMass*genMass;
+            newMasses.push_back(newMass);
+        }
+        return newMasses;
 
     }
 
@@ -684,6 +716,64 @@ public:
     }
 };
 
+//Holds candidate objects (particles/clusters) while user configures
+class InitialisationQueue {
+private:
+    std::vector<OneParticleSettings> particles;
+    std::vector<ClusterSettings> clusters;
+public:
+    std::vector<OneParticleSettings> getParticles() {
+        return particles;
+    }
+    std::vector<ClusterSettings> getClusters() {
+        return clusters;
+    }
+    void addParticle(OneParticleSettings settings) {
+        particles.push_back(settings);
+    }
+    void addCluster(ClusterSettings settings) {
+        clusters.push_back(settings);
+    }
+    void removeParticle(int index) {
+        particles.erase(particles.begin() + index);
+    }
+    void removeCluster(int index) {
+        clusters.erase(clusters.begin() + index);
+    }
+};
+
+//Initialise all particles in queue
+std::vector<Particle> InitialiseAll(InitialisationQueue queue) {
+    std::vector<OneParticleSettings> particleinit = queue.getParticles();
+    std::vector<ClusterSettings> clusterinit = queue.getClusters();
+
+    std::vector<Particle> allParticles;
+
+    //Add all inidividual particles
+    for (OneParticleSettings p : particleinit) {
+        allParticles.push_back(Particle(p));
+    }
+    //if (p.autoOrbit) {Calculate velocity}
+
+    //Add all clusters
+    for (ClusterSettings c : clusterinit) {
+        Cluster cluster(c);
+        if (c.centralMassEnabled) {
+            cluster.AddCentralMass(c.centralMass);
+        }
+                    
+        
+        cluster.configureSoftening(c.size);
+        cluster.assignVelocities();
+        cluster.reframeParticles();
+
+        std::vector<Particle> clusterParticles = cluster.getParticleList();
+        allParticles.insert(allParticles.end(),clusterParticles.begin(),clusterParticles.end());
+
+    }
+
+    return allParticles;
+}
 
 std::vector<int> GenerateClusterSizes(int clusters, int particles) {
     int average = particles / clusters;
@@ -717,13 +807,47 @@ std::vector<int> GenerateClusterSizes(int clusters, int particles) {
     return sizes;
 }
 
+
+void autoClusters(const AllSettings &settings, InitialisationQueue &queue) {
+    if (settings.init.clusterCount == 1) {
+        ClusterSettings clustersettings;
+        clustersettings.axis = Vect3{0,1,0};
+        clustersettings.position = Vect3{0,0,0};
+        clustersettings.systemVelocity = Vect3{0,0,0};
+        clustersettings.particleCount = settings.user.particleN;
+        clustersettings.size = settings.user.plotSize/2;
+        clustersettings.flattening = 0.5;
+
+        queue.addCluster(clustersettings);
+    }
+    else {
+        std::vector<int> split = GenerateClusterSizes(settings.init.clusterCount,settings.user.particleN);
+        for (int c = 0; c < settings.init.clusterCount; c++) {
+            ClusterSettings clustersettings;
+            clustersettings.position = 2*randomSph(settings.user.plotSize);
+            clustersettings.systemVelocity = {0,0,0};
+            clustersettings.axis = randomAxis();
+            clustersettings.flattening = randomDouble(0,1);
+            clustersettings.size = settings.user.plotSize/4;
+            clustersettings.particleCount = split[c];
+
+            if (settings.user.colourScheme == ColourOptions::Cluster) {
+                clustersettings.clusterColour=colourList[c%colourList.size()];
+            }
+
+            queue.addCluster(clustersettings);
+        }
+    }   
+}
+
+
 //Simulation Class - Should be self-contained (as much as possible)
 class Simulation {
 private:
     AllSettings settings;
 
     std::vector<Particle> particles;
-    std::vector<std::vector<int>> particlePairs;
+    // std::vector<std::vector<int>> particlePairs;
 
     double timestep = 0.5*10*24*60*60;
     double epsilon = 5e13;
@@ -741,9 +865,9 @@ private:
     bool updateTimingExists = false;
 
 public:
-    Simulation(const AllSettings& settings)
-        : settings(settings) {
-        initialise_clusters();
+    Simulation(const AllSettings& settings, std::vector<Particle>& particles)
+        : settings(settings), particles(particles) {
+        // initialise_clusters();
         // initialise_particles();
         updateMassLimits();
         momentum_centre();
@@ -830,86 +954,7 @@ private:
             particles.back().setColour(YELLOW);
         }
     }
-    void initialise_clusters() {
-        if (settings.init.clusterCount == 1) {
-            ClusterSettings clustersettings;
-            clustersettings.axis = Vect3{0,1,0};
-            clustersettings.position = Vect3{0,0,0};
-            clustersettings.systemVelocity = Vect3{0,0,0};
-            clustersettings.particleCount = settings.user.particleN;
-            clustersettings.size = settings.user.plotSize/2;
-            clustersettings.flattening = 0.5;
 
-            Cluster cluster1(clustersettings);
-            if (settings.user.enableCentralMass) {
-                cluster1.AddCentralMass(5e33);
-            }
-
-            cluster1.configureSoftening(settings.user.plotSize);
-            cluster1.assignVelocities();
-            cluster1.reframeParticles();
-
-            std::vector<Particle> clusterParticles = cluster1.getParticleList();
-            particles.insert(particles.end(),clusterParticles.begin(),clusterParticles.end());
-        }
-        else {
-            std::vector<int> split = GenerateClusterSizes(settings.init.clusterCount,settings.user.particleN);
-            for (int c = 0; c < settings.init.clusterCount; c++) {
-                ClusterSettings clustersettings;
-                clustersettings.position = 2*randomSph(settings.user.plotSize);
-                clustersettings.systemVelocity = {0,0,0};
-                clustersettings.axis = randomAxis();
-                clustersettings.flattening = randomDouble(0,1);
-                clustersettings.size = settings.user.plotSize/4;
-                clustersettings.particleCount = split[c];
-
-                Cluster cluster(clustersettings);
-                if (settings.user.enableCentralMass) {
-                    cluster.AddCentralMass(5e33);
-                }
-
-                if (settings.user.colourScheme == ColourOptions::Cluster) {
-                    // cluster.setClusterColour(randomColour(colourList));
-                    cluster.setClusterColour(colourList[c%colourList.size()]);
-                }
-
-                cluster.configureSoftening(settings.user.plotSize);
-                cluster.assignVelocities();
-                cluster.reframeParticles();
-
-                std::vector<Particle> clusterParticles = cluster.getParticleList();
-                particles.insert(particles.end(),clusterParticles.begin(),clusterParticles.end());
-            }
-        }
-    }
-
-    //Create all particle objects
-    void initialise_particles() {
-        std::vector<double> masses = generate_masses(settings.user.particleN);
-
-        for (int i = 0; i < settings.user.particleN; i++) {
-            Vect3 pos = randomSph(settings.user.plotSize/2);
-            Vect3 vel{0,0,0};
-            particles.push_back(Particle(masses[i],pos,vel));
-        }
-        if (settings.user.enableCentralMass) {
-            Vect3 zero{0,0,0};
-            particles.push_back(Particle(5e32, zero, zero));
-        }
-        // particles.push_back(Particle(6e38, Vect3{2e15, 0, 2e15}, 0.2*globularVel(Vect3{2e15, 0, 2e15}, 5e38)));
-        // particles.push_back(Particle(6e38, Vect3{-2e15, 0, -2e15}, 0.22*globularVel(Vect3{-2e15, 0, -2e15}, 5e38)));
-        updateMassLimits();
-
-        for (int i = 0; i < settings.user.particleN; i++) {
-            double encMass = enclosedMass(particles[i]);
-            Vect3 currentPos = particles[i].getPos();
-
-            Vect3 vel = globularVel(currentPos,encMass);
-
-            particles[i].setVel(vel);
-        }
-
-    }
     void updateMassLimits() {
         totalMass = 0.0;
         minMass = 1e64;
@@ -963,19 +1008,6 @@ private:
         }
         return mass;
     }
-    // // Create list containing the indices of each pair of particles
-    // void create_particle_pairs() {
-    //     particlePairs.clear();
-
-    //     for (int i = 0; i < particles.size(); i++) {
-    //         for (int j = i+1; j < particles.size(); j++) {
-    //             std::vector<int> pair = {i,j}; 
-    //             particlePairs.push_back(pair);
-    //         }
-    //     }
-    // }
-
-    // Calculate the distance between two particles
     double distanceCalc(const Particle &p1, const Particle &p2) {
         Vect3 pos1 = p1.getPos();
         Vect3 pos2 = p2.getPos();
@@ -1044,22 +1076,6 @@ public:
             particles[i].calcVel(timestep/2);
         }
 
-        // for (size_t i = 0; i < particles.size(); i++) {
-        //     Vect3 pos = particles[i].getPos();
-        //     float renderScale = 10.0f / settings.user.plotSize;
-
-        //     Vector3 trailPoint = {
-        //         static_cast<float>(pos.x * renderScale),
-        //         static_cast<float>(pos.y * renderScale),
-        //         static_cast<float>(pos.z * renderScale)
-        //     };
-
-        //     particles[i].trail.push_back(trailPoint);
-
-        //     if (particles[i].trail.size() > settings.user.maxTrailLength) {
-        //         particles[i].trail.erase(particles[i].trail.begin());
-        //     }
-        // }
         currentTime+=timestep;
 
         //Timing
@@ -1333,10 +1349,10 @@ void UpdateParticleMass(Particle &particle) {
 
 //Change Sim Speed
 double UpdateSimSpeed(double targetFramesPerSecond) {
-    if (IsKeyPressed(KEY_EQUAL)) {
+    if (IsKeyPressed(KEY_EQUAL) || (IsKeyPressedRepeat(KEY_EQUAL) && IsKeyDown(KEY_EQUAL))) {
         targetFramesPerSecond += 10;
     };
-    if (IsKeyPressed(KEY_MINUS) && targetFramesPerSecond > 0) {
+    if (IsKeyPressed(KEY_MINUS) || (IsKeyPressedRepeat(KEY_MINUS) && IsKeyDown(KEY_MINUS)) && targetFramesPerSecond > 0) {
         targetFramesPerSecond -= 10;
     }
     return targetFramesPerSecond;
@@ -1452,7 +1468,7 @@ private:
     std::string allOptionNames;
     int& selectedOption;
     std::vector<DropdownOptionSetup> options;
-
+    float yposition;
 
 public:
     int height = 80;
@@ -1471,8 +1487,11 @@ public:
             allOptionNames += ";" + option.display_name;
         }
     }
+    void saveYpos(float ypos) {
+        yposition = ypos;
+    }
 
-    void draw(float yposition) {
+    void draw() {
         DrawText(TextFormat("%s:", dropdownText.c_str()), 40, yposition, 10, DARKGRAY);
 
         DrawText(TextFormat("%s", options[selectedOption].description.c_str()), 40, yposition+50, 10, DARKGRAY);
@@ -1542,6 +1561,12 @@ void OpenSetupGUI(AllSettings& settings) {
 
     bool startPressed = false;
 
+    int selectedPreset = static_cast<int>(settings.init.preset);
+    Dropdown presetChoice(selectedPreset, "Preset");
+    presetChoice.addOption({"Default", 0, "Generate Random Clusters"});
+    presetChoice.addOption({"Solar System", 1, "Model Solar System"});
+    presetChoice.addOption({"Milky Way", 2, "Milky Way Model(ish)"});
+
     IntSlider nSlider(settings.user.particleN, "20", "1000", 20, 1000, "Total Particles");
     IntSlider trailSlider(settings.user.maxTrailLength, "1", "100", 0.0f, 100.0f, "Trail Length");
     Tickbox centralMassTick(settings.user.enableCentralMass, "Central Mass");
@@ -1567,11 +1592,28 @@ void OpenSetupGUI(AllSettings& settings) {
             DrawText("Settings for Gravity Simulation", 40, nextYpos, 24, BLACK);
             nextYpos += 60;
 
-            nSlider.draw(nextYpos);
-            nextYpos += nSlider.height;
+            presetChoice.saveYpos(nextYpos);
+            nextYpos += presetChoice.height;
+            settings.init.preset = static_cast<SystemPreset>(selectedPreset);
 
-            plotsizeSlider.draw(nextYpos);
-            nextYpos += plotsizeSlider.height;
+            if (settings.init.preset != SystemPreset::SolarSystem) {
+                nSlider.draw(nextYpos);
+                nextYpos += nSlider.height;
+
+                plotsizeSlider.draw(nextYpos);
+                nextYpos += plotsizeSlider.height;
+
+                centralMassTick.draw(nextYpos);
+                nextYpos += centralMassTick.height;
+
+                colourChoice.saveYpos(nextYpos);
+                nextYpos += colourChoice.height;
+                settings.user.colourScheme = static_cast<ColourOptions>(selectedColourIndex);
+
+                if (GuiButton(Rectangle{40, WINDOW_HEIGHT - 100, 400, 35}, "Initial Conditions")) {
+                    screen = SetupScreen::InitialConditions;
+                }
+            }
 
             drawTrailsTick.draw(nextYpos);
             nextYpos += drawTrailsTick.height;
@@ -1581,19 +1623,13 @@ void OpenSetupGUI(AllSettings& settings) {
                 nextYpos += trailSlider.height;
             }
 
-            centralMassTick.draw(nextYpos);
-            nextYpos += centralMassTick.height;
-
-            colourChoice.draw(nextYpos);
-            nextYpos += colourChoice.height;
-            settings.user.colourScheme = static_cast<ColourOptions>(selectedColourIndex);
-
-            if (GuiButton(Rectangle{40, WINDOW_HEIGHT - 100, 400, 35}, "Initial Conditions")) {
-                screen = SetupScreen::InitialConditions;
-            }
-
             if (GuiButton(Rectangle{40, WINDOW_HEIGHT - 50, 140, 35}, "Start")) {
                 startPressed = true;
+            }
+
+            presetChoice.draw();
+            if (settings.init.preset != SystemPreset::SolarSystem) {
+                colourChoice.draw();
             }
         }
 
@@ -1616,17 +1652,78 @@ void OpenSetupGUI(AllSettings& settings) {
 }
 
 
+void buildSolarSystem(AllSettings &settings, InitialisationQueue &queue) {
+
+    settings.user.plotSize = 5e12;
+    settings.user.colourScheme = ColourOptions::None;
+    settings.user.enableCentralMass = false;
+    //Sun
+    OneParticleSettings sun;
+    sun.mass = M0;
+    sun.position = Vect3{0,0,0};
+    sun.velocity = Vect3{0,0,0};
+    sun.particleColour = YELLOW;
+    queue.addParticle(sun);
+    //Earth
+    OneParticleSettings earth;
+    earth.mass = 5.972e24;
+    earth.position = Vect3{1.496e11, 0, 0};
+    earth.velocity = Vect3{0, 0, 29.78e3};
+    earth.autoOrbit = true;
+    // earth.orbitBody = sun;
+    earth.axis = Vect3{0,1,0};
+    earth.eccentricity = 0;
+    earth.particleColour = SKYBLUE;
+    queue.addParticle(earth);
+
+}
+
+void buildMilkyWay(AllSettings &settings, InitialisationQueue &queue) {
+
+    settings.user.plotSize = 5e20;
+    
+    ClusterSettings mway;
+    mway.centralMassEnabled = true;
+    mway.centralMass = 1.0e10 * M0;
+    mway.clusterGeneratedMass = 5.0e10 * M0;
+    mway.axis = {0,1,0};
+    mway.flattening = 0.02;
+    mway.particleCount = settings.user.particleN;
+    mway.IMF = MassDistribution::KroupaIMF;
+    mway.rescaleMasses = true;
+    mway.position = {0, 0, 0};
+    mway.systemVelocity = {0, 0, 0};
+
+    mway.size = 4.7e20;
+
+    queue.addCluster(mway);
+
+}
 
 
 int main() {
 
+    InitialisationQueue initqueue;
     //Create settings struct
     AllSettings settings;
 
-    OpenSetupGUI(settings);
+    // settings.init.preset = SystemPreset::Clusters;
 
+    OpenSetupGUI(settings);
+    if (settings.init.preset == SystemPreset::Clusters) {
+        autoClusters(settings,initqueue);
+    }
+    if (settings.init.preset == SystemPreset::SolarSystem) {
+        buildSolarSystem(settings,initqueue);
+    }
+    if (settings.init.preset == SystemPreset::MilkyWay) {
+        buildMilkyWay(settings,initqueue);
+    }
+    
+
+    std::vector<Particle> particles = InitialiseAll(initqueue);
     //Start Simulation
-    Simulation sim(settings);
+    Simulation sim(settings,particles);
 
     TrailManager trailManager(sim.getParticles().size(), settings.user.maxTrailLength, settings.user.plotSize);
 
