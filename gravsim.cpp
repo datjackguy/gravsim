@@ -1216,6 +1216,27 @@ void UpdateParticleMass(Particle &particle) {
     particle.setMass(mass);
 }
 
+//Toggle Info
+bool checkHideInfo(bool hideInfo) {
+    if (IsKeyPressed(KEY_F3)) {
+        return !hideInfo;
+    }
+    else {
+        return hideInfo;
+    }
+}
+
+//Change Sim Speed
+double UpdateSimSpeed(double targetFramesPerSecond) {
+    if (IsKeyPressed(KEY_EQUAL)) {
+        targetFramesPerSecond += 10;
+    };
+    if (IsKeyPressed(KEY_MINUS) && targetFramesPerSecond > 0) {
+        targetFramesPerSecond -= 10;
+    }
+    return targetFramesPerSecond;
+}
+
 // Calculate animation sphere size
 float GetVisualRadius(double mass, double totalMass, double minMass, double maxMass, int numParticles) {
 
@@ -1451,15 +1472,33 @@ void DrawGridUnitOverlay(double plotSize)
     DrawText(TextFormat("1 grid unit = %.1e m / %.1e AU / %.1epc", metresPerGridUnit,metresPerGridUnit*AUpermetre,metresPerGridUnit*pcpermetre),15,GetScreenHeight()-68,20,RAYWHITE);
 }
 
-void DrawTimeOverlay(double elapsedYears, double timestepYears, double yearsPerSecond)
+void DrawControlsOverlay()
 {
-    DrawRectangle(10, 10, 360, 95, Fade(BLACK, 0.6f));
+    DrawRectangle(GetScreenWidth() - 310, GetScreenHeight()-150, 500, 145, Fade(BLACK, 0.6f));
+
+    DrawText("Click+Drag: Rotate View",GetScreenWidth() - 295,GetScreenHeight()-145,20,RAYWHITE);
+
+    DrawText("Scroll: Zoom",GetScreenWidth() - 295,GetScreenHeight()-120,20,RAYWHITE);
+
+    DrawText("Arrows: Move Camera",GetScreenWidth() - 295,GetScreenHeight()-95,20,RAYWHITE);
+
+    DrawText("F3: Toggle Info",GetScreenWidth() - 295,GetScreenHeight()-70,20,RAYWHITE);
+
+    DrawText("+/-: Speed",GetScreenWidth() - 295,GetScreenHeight()-45,20,RAYWHITE);
+}
+
+
+void DrawTimeOverlay(double elapsedYears, double timestepYears, double yearsPerSecond, int updatesPerSecond)
+{
+    DrawRectangle(10, 10, 360, 120, Fade(BLACK, 0.6f));
 
     DrawText(TextFormat("Elapsed time: %.2f years", elapsedYears), 15, 22, 20, RAYWHITE);
 
     DrawText(TextFormat("Timestep: %.3e years", timestepYears), 15, 47, 20, RAYWHITE);
 
     DrawText(TextFormat("Rate: %.3e years/s", yearsPerSecond), 15, 72, 20, RAYWHITE);
+
+    DrawText(TextFormat("Physics Updates Per Second: %i", updatesPerSecond), 15, 97, 20, RAYWHITE);
 }
 
 void DrawPerformanceOverlay(double lastUpdateMs, double averageUpdateMs)
@@ -1470,44 +1509,9 @@ void DrawPerformanceOverlay(double lastUpdateMs, double averageUpdateMs)
 
     DrawText(TextFormat("Average: %.3f ms", averageUpdateMs), GetScreenWidth() - 295, 47, 20, RAYWHITE);
 
-    DrawText(TextFormat("Updates Per Second: %.1f", 1000/averageUpdateMs), GetScreenWidth() - 295, 72, 20, RAYWHITE);
+    DrawText(TextFormat("Max Updates/s: %.1f", 1000/averageUpdateMs), GetScreenWidth() - 295, 72, 20, RAYWHITE);
 }
 
-// void OpenInitialisationGUI(AllSettings& settings) {
-//     //Open Settings GUI
-//     float WINDOW_HEIGHT = 700;
-//     float WINDOW_WIDTH = 500;
-
-//     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Initial Conditions Setup");
-//     SetTargetFPS(60);
-
-//     bool savePressed = false;
-//     IntSlider clusterSlider = IntSlider(settings.init.clusterCount, "1", "10", 1, 10, "Number of Clusters");
-
-
-//     while (!WindowShouldClose() && !savePressed) {
-//         BeginDrawing();
-
-//         ClearBackground(RAYWHITE);
-
-//         float nextYpos = 40;
-
-//         DrawText("Initial Conditions", 40, nextYpos, 24, BLACK);
-//         nextYpos += 60;
-        
-//         clusterSlider.draw(nextYpos);
-//         nextYpos += clusterSlider.height;
-
-//         if (GuiButton(Rectangle{40, WINDOW_HEIGHT-50, 140, 35}, "Save")) {
-//             savePressed = true;
-//             }
-
-//         EndDrawing();
-//     }
-
-//     CloseWindow();
-
-// }
 
 enum class SetupScreen {
     Main,
@@ -1519,7 +1523,7 @@ void OpenSetupGUI(AllSettings& settings) {
     float WINDOW_WIDTH = 500;
 
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Gravity Simulation Settings");
-    SetTargetFPS(60);
+    SetTargetFPS(30);
 
     SetupScreen screen = SetupScreen::Main;
 
@@ -1616,7 +1620,7 @@ int main() {
     int windowHeight = 1200;
 
 
-
+    bool hideInfo = false;
 
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
@@ -1649,12 +1653,41 @@ int main() {
 
     SetTargetFPS(60);
 
-    const std::vector<Particle> &particles = sim.getParticles();
+    // const std::vector<Particle> &particles = sim.getParticles();
+
+    double targetUpdatesPerSecond = 60.0;
+    double secondsPerUpdate = 1.0 / targetUpdatesPerSecond;
+
+    const double maxFrameSeconds = 1.0/15;
+    const int maxUpdatesPerFrame = 5;
+
+    double accumulator = 0.0;
+
     while (!WindowShouldClose()) {
-        float dt = GetFrameTime();
-        float time = GetTime();
+        double frameSeconds = GetFrameTime();
+        frameSeconds = std::min(frameSeconds,maxFrameSeconds);
+
+        accumulator += frameSeconds;
+
+        int updatesThisFrame = 0;
+
+        while (accumulator >= secondsPerUpdate && updatesThisFrame < maxUpdatesPerFrame) {
+            sim.update();
+
+            accumulator -= secondsPerUpdate;
+            updatesThisFrame++;
+        }
+
+        if (updatesThisFrame == maxUpdatesPerFrame) {
+            accumulator = 0.0;
+        }
 
         UpdateOrbitCamera(camera, cameraYaw, cameraPitch, cameraDistance);
+
+        hideInfo = checkHideInfo(hideInfo);
+
+        targetUpdatesPerSecond = UpdateSimSpeed(targetUpdatesPerSecond);
+        secondsPerUpdate = 1.0 / targetUpdatesPerSecond;
 
         // UpdateParticlePos(particles[particles.size()-1], settings);
 
@@ -1672,6 +1705,8 @@ int main() {
         DrawLine3D({ -10.0f, 0.0f, 0.0f }, { 10.0f, 0.0f, 0.0f }, RED);
         DrawLine3D({ 0.0f, -10.0f, 0.0f }, { 0.0f, 10.0f, 0.0f }, GREEN);
         DrawLine3D({ 0.0f, 0.0f, -10.0f }, { 0.0f, 0.0f, 10.0f }, BLUE);
+
+        const std::vector<Particle> &particles = sim.getParticles();
 
         for (int i = 0; i < particles.size(); i++) {
             Vect3 ppos = particles[i].getPos();
@@ -1710,18 +1745,17 @@ int main() {
 
         EndMode3D();
 
-        double yearsPerSecond = 0.0;
+        double yearsPerSecond = sim.getTimestepYears() * targetUpdatesPerSecond;
 
-        if (dt > 0.0f) {
-            yearsPerSecond = sim.getTimestepYears() / dt;
+        if (!hideInfo) {
+            DrawTimeOverlay(sim.getCurrentTimeYears(), sim.getTimestepYears(), yearsPerSecond, targetUpdatesPerSecond);
+            DrawGridUnitOverlay(settings.user.plotSize);
+            DrawPerformanceOverlay(sim.getLastUpdateMs(), sim.getAverageUpdateMs());
+            DrawControlsOverlay();
         }
 
-        DrawTimeOverlay(sim.getCurrentTimeYears(), sim.getTimestepYears(), yearsPerSecond);
-        DrawGridUnitOverlay(settings.user.plotSize);
-        DrawPerformanceOverlay(sim.getLastUpdateMs(), sim.getAverageUpdateMs());
-
         EndDrawing();
-        sim.update();
+        // sim.update();
     }
 
     CloseWindow();
