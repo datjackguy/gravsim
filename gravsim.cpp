@@ -17,6 +17,7 @@
 #include <thread>
 #include <chrono>
 #include <algorithm>
+#include <deque>
 
 #include "raylib.h"
 #define RAYGUI_IMPLEMENTATION
@@ -397,7 +398,7 @@ private:
     double softening = 0.0;
 
 public:
-    std::vector<Vector3> trail;
+    // std::vector<Vector3> trail;
     // Constructor
     Particle(double mass, Vect3 pos, Vect3 vel)
         : mass(mass), pos(pos), vel(vel) {
@@ -500,13 +501,13 @@ struct UserSettings {
     double plotSize = 2e15;
     int maxTrailLength = 20;
     // int selectedColourOption = 1;
-    ColourOptions colourScheme = ColourOptions::White;
+    ColourOptions colourScheme = ColourOptions::Random;
     int selectedWindowSize = 0;
 };
 
 struct InitSettings {
     //Dropdowns/Enum
-    int preset = 1; //0 - Custom, 1 - Globular Cluster, 2 - Galaxy, 3 - Solar System etc.
+    SystemPreset preset = SystemPreset::Clusters;
 
     int clusterCount = 1;
     //Add cluster menu
@@ -517,16 +518,18 @@ struct ClusterSettings {
     double distancefromorigin; //Distance of cluster from 0,0,0;
     Vect3 position; //Position of cluster centre - default determined randomly from distancefromorigin
     
-    int shape = 0; //Presets - Spherical, Disk (Thickness), Lobed, Spiral etc.
+    ClusterShape shape = ClusterShape::Disk;
+    double flattening;
     Vect3 axis; //Rotation axis of disk
     double velocityScheme = 0; //0=Perfect circular orbit, 1=Purely Random?
     double velocityScale = 0; //-1=Slower than orbit, 0=Perfect Circular, 1=Faster Than Circular
-    double systemVelocity = 0; //Motion of cluster in simulation frame
+    Vect3 systemVelocity = {0,0,0}; //Motion of cluster in simulation frame
     bool centralMassEnabled = true; //Central Mass in cluster
     double centralMass = 1e35;
-    int IMF = 0; //0 = Uniform Random Masses, 1 = Kroupa 2002 IMF-like
+    MassDistribution IMF = MassDistribution::KroupaIMF; //0 = Uniform Random Masses, 1 = Kroupa 2002 IMF-like
     double lowMassBound = 1 * M0;
     double highMassBound = 100 * M0;
+    int particleCount;
 };
 
 struct OneParticleSettings {
@@ -560,8 +563,8 @@ private:
     bool centralMassExists = false;
 
 public:
-    Cluster(Vect3 centrepos, Vect3 vel, Vect3 axis, double flattening, int particleCount, double radius) :
-        centrepos(centrepos), vel(vel), axis(axis), flattening(flattening), particleCount(particleCount), radius(radius) {
+    Cluster(ClusterSettings settings) :
+        centrepos(settings.position), vel(settings.systemVelocity), axis(settings.axis), flattening(settings.flattening), particleCount(settings.particleCount), radius(settings.size) {
         
         initialise_particles();
         // assignVelocities();
@@ -829,7 +832,15 @@ private:
     }
     void initialise_clusters() {
         if (settings.init.clusterCount == 1) {
-            Cluster cluster1(Vect3{0,0,0}, Vect3{0,0,0}, Vect3{0,1,0}, 0.5, settings.user.particleN, settings.user.plotSize/2);
+            ClusterSettings clustersettings;
+            clustersettings.axis = Vect3{0,1,0};
+            clustersettings.position = Vect3{0,0,0};
+            clustersettings.systemVelocity = Vect3{0,0,0};
+            clustersettings.particleCount = settings.user.particleN;
+            clustersettings.size = settings.user.plotSize/2;
+            clustersettings.flattening = 0.5;
+
+            Cluster cluster1(clustersettings);
             if (settings.user.enableCentralMass) {
                 cluster1.AddCentralMass(5e33);
             }
@@ -844,13 +855,15 @@ private:
         else {
             std::vector<int> split = GenerateClusterSizes(settings.init.clusterCount,settings.user.particleN);
             for (int c = 0; c < settings.init.clusterCount; c++) {
-                Vect3 clusterCentre = 2*randomSph(settings.user.plotSize);
-                Vect3 clusterVelocity{0,0,0};
-                Vect3 clusterAxis = randomAxis();
-                double clusterFlattening = randomDouble(0,1);
-                double clusterRadius = settings.user.plotSize/4;
+                ClusterSettings clustersettings;
+                clustersettings.position = 2*randomSph(settings.user.plotSize);
+                clustersettings.systemVelocity = {0,0,0};
+                clustersettings.axis = randomAxis();
+                clustersettings.flattening = randomDouble(0,1);
+                clustersettings.size = settings.user.plotSize/4;
+                clustersettings.particleCount = split[c];
 
-                Cluster cluster(clusterCentre,clusterVelocity,clusterAxis,clusterFlattening,split[c],clusterRadius);
+                Cluster cluster(clustersettings);
                 if (settings.user.enableCentralMass) {
                     cluster.AddCentralMass(5e33);
                 }
@@ -1031,22 +1044,22 @@ public:
             particles[i].calcVel(timestep/2);
         }
 
-        for (size_t i = 0; i < particles.size(); i++) {
-            Vect3 pos = particles[i].getPos();
-            float renderScale = 10.0f / settings.user.plotSize;
+        // for (size_t i = 0; i < particles.size(); i++) {
+        //     Vect3 pos = particles[i].getPos();
+        //     float renderScale = 10.0f / settings.user.plotSize;
 
-            Vector3 trailPoint = {
-                static_cast<float>(pos.x * renderScale),
-                static_cast<float>(pos.y * renderScale),
-                static_cast<float>(pos.z * renderScale)
-            };
+        //     Vector3 trailPoint = {
+        //         static_cast<float>(pos.x * renderScale),
+        //         static_cast<float>(pos.y * renderScale),
+        //         static_cast<float>(pos.z * renderScale)
+        //     };
 
-            particles[i].trail.push_back(trailPoint);
+        //     particles[i].trail.push_back(trailPoint);
 
-            if (particles[i].trail.size() > settings.user.maxTrailLength) {
-                particles[i].trail.erase(particles[i].trail.begin());
-            }
-        }
+        //     if (particles[i].trail.size() > settings.user.maxTrailLength) {
+        //         particles[i].trail.erase(particles[i].trail.begin());
+        //     }
+        // }
         currentTime+=timestep;
 
         //Timing
@@ -1106,6 +1119,58 @@ public:
 
 
 // Drawing/Rendering Functions
+Vector3 ToRenderPosition(Vect3 pos, double plotSize) {
+    float renderScale = 10.0f / static_cast<float>(plotSize);
+
+    return Vector3{static_cast<float>(pos.x * renderScale), static_cast<float>(pos.y * renderScale), static_cast<float>(pos.z * renderScale)};
+}
+
+class TrailManager {
+private:
+    std::vector<std::deque<Vector3>> allTrails;
+    int maxTrailLength = 0;
+    double plotSize = 1.0;
+
+public:
+    TrailManager(int particleCount, int maxTrailLength, double plotSize)
+        : allTrails(particleCount), maxTrailLength(maxTrailLength), plotSize(plotSize) {
+    }
+
+    void record(const std::vector<Particle>& particles) {
+        if (allTrails.size() != particles.size()) {
+            allTrails.clear();
+            allTrails.resize(particles.size());
+        }
+
+        for (size_t i = 0; i < particles.size(); i++) {
+            Vector3 trailPoint = ToRenderPosition(particles[i].getPos(),plotSize);
+
+            allTrails[i].push_back(trailPoint);
+
+            while (static_cast<int>(allTrails[i].size()) > maxTrailLength) {
+                allTrails[i].pop_front();
+            }
+        }
+    }
+
+    void draw(const std::vector<Particle>& particles) const {
+        for (size_t p = 0; p < allTrails.size(); p++) {
+            Color colour = particles[p].getColour();
+
+            for (size_t i = 1; i < allTrails[p].size(); i++) {
+                DrawLine3D(allTrails[p][i - 1], allTrails[p][i], colour);
+            }
+        }
+    }
+
+    void clear() {
+        for (auto& trail : allTrails) {
+            trail.clear();
+        }
+    }
+};
+
+
 //Enable user control of camera view (zoom and rotate)
 void UpdateOrbitCamera(Camera3D& camera, float& yaw, float& pitch, float& distance)
 {
@@ -1213,11 +1278,11 @@ float GetVisualRadius(double mass) {
     return minRadius + t * (maxRadius - minRadius);
 }
 
-void DrawTrail(const Particle &particle) {
-    for (size_t i = 1; i < particle.trail.size(); i++) {
-        DrawLine3D(particle.trail[i-1], particle.trail[i], particle.getColour());
-    }
-}
+// void DrawTrail(const Particle &particle) {
+//     for (size_t i = 1; i < particle.trail.size(); i++) {
+//         DrawLine3D(particle.trail[i-1], particle.trail[i], particle.getColour());
+//     }
+// }
 
 //Live sim controls
 //Allow the user to move a particle mid-simulation with WASD 
@@ -1563,6 +1628,8 @@ int main() {
     //Start Simulation
     Simulation sim(settings);
 
+    TrailManager trailManager(sim.getParticles().size(), settings.user.maxTrailLength, settings.user.plotSize);
+
     int windowWidth = 1200;
     int windowHeight = 1200;
 
@@ -1619,6 +1686,10 @@ int main() {
         while (accumulator >= secondsPerUpdate && updatesThisFrame < maxUpdatesPerFrame) {
             sim.update();
 
+            if (settings.user.drawTrails) {
+                trailManager.record(sim.getParticles());
+            }
+
             accumulator -= secondsPerUpdate;
             updatesThisFrame++;
         }
@@ -1653,6 +1724,11 @@ int main() {
 
         const std::vector<Particle> &particles = sim.getParticles();
 
+        if (settings.user.drawTrails) {
+            // DrawTrail(particles[i]);
+            trailManager.draw(particles);
+        }
+
         for (size_t i = 0; i < particles.size(); i++) {
             Vect3 ppos = particles[i].getPos();
             float renderScale = 10.0f / settings.user.plotSize;
@@ -1670,9 +1746,6 @@ int main() {
 
             Color circleColor = particles[i].getColour();
 
-            if (settings.user.drawTrails) {
-                DrawTrail(particles[i]);
-            }
             DrawSphere(pposV3,circleSize,circleColor);
         }
 
