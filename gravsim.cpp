@@ -9,6 +9,7 @@
 //Presets enum - Solar System (Plus Pluto, Moon and Asteroid Belt), Jupiter system, Globular Cluster, Milky Way Scale, Milky Way / Andromeda Collision 
 //Timestep/Softening Automation
 
+//Includes
 #include <iostream>
 #include <cmath>
 #include <vector>
@@ -22,16 +23,29 @@
 #include "raygui.h"
 #include "raymath.h"
 
+//Global Constants
 const double pi = 3.141592653589793;
 const double G = 6.67430e-11;
-// const double epsilon = 5e13;
 const double M0 = 1.989e30; //kg
 const double secondsPerYear = 365.25 * 24.0 * 60.0 * 60.0;
 const double AUpermetre = 1/1.496e11;
 const double pcpermetre = 1/3.086e16;
-// bool enableCentralMass = true;
-// int selectedColourOption = 0;
+const std::vector<Color> colourList = {RED,GREEN,BLUE,ORANGE,PURPLE,MAGENTA,SKYBLUE,PINK,GOLD,MAROON,LIME,DARKGREEN};
 
+//Enums
+enum class ColourOptions {
+    White,
+    Random,
+    Distance,
+    Cluster
+};
+
+enum class SetupScreen {
+    Main,
+    InitialConditions
+};
+
+//Utility Functions/Maths
 //Initialise random generator
 // std::mt19937 gen(3);
 std::random_device rd;
@@ -44,7 +58,7 @@ double randomDouble(double min, double max) {
 }
 
 //Generate a random integer between min, max
-double randomInteger(int min, int max) {
+int randomInteger(int min, int max) {
     std::uniform_int_distribution<int> dist(min, max);
     return dist(gen);
 }
@@ -68,7 +82,6 @@ double clampDouble(double value, double low, double high)
     return std::max(low, std::min(value, high));
 }
 
-
 //Convert a 3 value vector to Raylib's Vector3
 Vector3 ToVector3(const std::vector<double>& values)
 {
@@ -85,15 +98,48 @@ double pythagoras(double x, double y, double z) {
     return r;
 }
 
-
-
 //Overloaded for any vector length
 double pythagoras(std::vector<double> vector) {
     double sumsq = 0;
-    for (int i = 0; i < vector.size(); i++) {
+    for (size_t i = 0; i < vector.size(); i++) {
         sumsq += vector[i]*vector[i];
     }
     return sqrt(sumsq);
+}
+
+//Kroupa 2002 IMF 
+double initial_mass_function(double m) {
+    if (m < 0.08) {
+        return 0.0;
+    }
+    else if (m < 0.5) {
+        return std::pow(m, -1.3);
+    }
+    else if (0.5 < m && m < 1) {
+        return std::pow(m, -2.3);
+    }
+    else {
+        return std::pow(m, -2.7);
+    }
+}
+
+//Generate N masses according to IMF
+std::vector<double> generate_masses(int N) {
+    std::vector<double> masses(N);
+    for (size_t i = 0; i < masses.size(); i++) {
+        double mass_candidate = 0.0;
+        while (mass_candidate == 0.0) {
+            //Random Mass (M_0?)
+            double x_candidate = randomDouble(0.0,20.0);
+            //Random Probability Threshold?
+            double y_candidate = randomDouble(0.0,1.0);
+            if (y_candidate <= initial_mass_function(x_candidate)) {
+                mass_candidate = x_candidate;
+            }
+        }
+        masses[i] = M0*mass_candidate;
+    }
+    return masses;
 }
 
 struct Vect3 {
@@ -156,6 +202,8 @@ struct Vect3 {
     }
 };
 
+
+//Vect3-Dependent Utilities
 Vect3 operator*(double scalar, const Vect3& vector) {
     return vector * scalar;
 }
@@ -171,6 +219,140 @@ Vect3 randomAxis() {
 //Overloaded for Vect3
 double pythagoras(Vect3 vector) {
     return sqrt(vector.x*vector.x+vector.y*vector.y+vector.z*vector.z);
+}
+
+// Generate position of individual particle within sphere* of maxRad
+Vect3 randomSph(double maxRad) {
+    double u = randomDouble(0.0,1.0);
+    double rho = maxRad * std::cbrt(u);
+
+    double cosTheta = randomDouble(-1.0, 1.0);
+    double sinTheta = std::sqrt(1.0 - cosTheta * cosTheta);
+    double phi = randomDouble(0.0, 2*pi);
+
+    Vect3 vector;
+    
+    vector.x = rho * sinTheta * std::cos(phi);
+    vector.y = rho * sinTheta * std::sin(phi);
+    vector.z = rho * cosTheta;
+
+    return vector;
+
+}
+
+Vect3 polarToCartesian(double r, double theta, double phi) {
+    Vect3 vector;
+    vector.x = r * std::sin(theta)*std::cos(phi);
+    vector.y = r * std::sin(theta)*std::sin(phi);
+    vector.z = r * std::cos(theta);
+    return vector;
+}
+
+
+Vect3 generateDisk(double maxRad, double flattening, Vect3 axis) {
+    Vect3 n = axis.normalise();
+
+    if (flattening < 0.0) flattening = 0.0;
+    if (flattening > 1.0) flattening = 1.0;
+
+    Vect3 temp;
+    temp = {0.0, 0.0, 1.0};
+    if (temp.cross(n) == Vect3{0,0,0}) {
+        temp = {1.0, 0.0, 0.0};
+    }
+
+    Vect3 e1 = temp.cross(n).normalise();
+    Vect3 e2 = n.cross(e1);
+
+    double u = randomDouble(0.0, 1.0);
+    double rho = maxRad * std::cbrt(u);
+
+    double cosTheta = randomDouble(-1.0, 1.0);
+    double sinTheta = std::sqrt(1.0 - cosTheta * cosTheta);
+    double phi = randomDouble(0.0, 2.0 * pi);
+
+    double xLocal = rho * sinTheta * std::cos(phi);
+    double yLocal = rho * sinTheta * std::sin(phi);
+
+    double zLocal = flattening * rho * cosTheta;
+
+    Vect3 vector = e1 * xLocal + e2 * yLocal + n * zLocal;
+
+    return vector;
+}
+
+
+
+//Compute the velocity of a particle at x,y,z
+Vect3 globularVel(Vect3 pos, double totalMass) {
+    double velScale;
+    double radius = pythagoras(pos);
+    double e = 1e12;
+    velScale = 2* pow((G*totalMass/(radius+e)),0.5);
+
+    double x = pos.x;
+    double y = pos.y;
+    double z = pos.z;
+
+    //Cylindrical Polar
+    double r = sqrt(x*x+z*z);
+    double phi = atan2(z,x);
+    //r velocity ~ 0
+    double dr_dt = randomDouble(-0.1,0.1);
+    //y velocity ~ 0
+    double dy_dt = randomDouble(-0.2,0.2);
+    //phi velocity - rotation
+    double omega = sqrt(G*totalMass/(radius*radius*radius));
+    double velx = dr_dt*cos(phi)-r*omega*sin(phi);
+    double vely = dy_dt;
+    double velz = dr_dt*sin(phi)+r*omega*cos(phi);
+
+    double mag = pythagoras(velx,vely,velz);
+  
+
+    Vect3 vector;
+    vector.x = velx;
+    vector.y = vely;
+    vector.z = velz;
+
+    // int sign = randomSign();
+    // vector = vector * sign;
+
+    return vector;
+
+}
+
+Vect3 diskVelocity(Vect3 pos, double orbitMass, Vect3 axis) {
+    Vect3 n = axis.normalise();
+
+    Vect3 radial = pos - n * pos.dot(n);
+
+    double r = radial.magnitude();
+
+    Vect3 tangent = n.cross(radial).normalise();
+
+    double speed = std::sqrt(G * orbitMass / r);
+
+    return tangent * speed;
+}
+
+Vect3 diskVelocity(Vect3 pos, double orbitMass, Vect3 axis, double softening) {
+    Vect3 n = axis.normalise();
+
+    Vect3 radial = pos - n * pos.dot(n);
+    double orbitalRadius = radial.magnitude();
+
+    Vect3 tangent = n.cross(radial).normalise();
+
+    double distanceFromCentre = pos.magnitude();
+
+    double softenedDistance2 = distanceFromCentre * distanceFromCentre + softening * softening;
+
+    double softenedDistance = std::sqrt(softenedDistance2);
+
+    double speed = std::sqrt(G * orbitMass * orbitalRadius * orbitalRadius / (softenedDistance2 * softenedDistance));
+
+    return tangent * speed;
 }
 
 
@@ -257,206 +439,7 @@ public:
     }
 };
 
-//Kroupa 2002 IMF 
-double initial_mass_function(double m) {
-    if (m < 0.08) {
-        return 0.0;
-    }
-    else if (m < 0.5) {
-        return std::pow(m, -1.3);
-    }
-    else if (0.5 < m && m < 1) {
-        return std::pow(m, -2.3);
-    }
-    else {
-        return std::pow(m, -2.7);
-    }
-}
-
-//Generate N masses according to IMF
-std::vector<double> generate_masses(int N) {
-    std::vector<double> masses(N);
-    for (int i = 0; i < masses.size(); i++) {
-        double mass_candidate = 0.0;
-        while (mass_candidate == 0.0) {
-            //Random Mass (M_0?)
-            double x_candidate = randomDouble(0.0,20.0);
-            //Random Probability Threshold?
-            double y_candidate = randomDouble(0.0,1.0);
-            if (y_candidate <= initial_mass_function(x_candidate)) {
-                mass_candidate = x_candidate;
-            }
-        }
-        masses[i] = M0*mass_candidate;
-    }
-    return masses;
-}
-
-
-// Generate position of individual particle within sphere* of maxRad
-Vect3 randomSph(double maxRad) {
-    // double rho = randomDouble(maxRad/20,maxRad);
-    // double theta = randomDouble(0.0,pi);
-    // double phi = randomDouble(0.0, 2*pi);
-    // double x = rho * std::sin(theta) * std::cos(phi);
-    // double y = 0.4 * rho * std::sin(theta) * std::sin(phi);
-    // double z = rho * std::cos(theta);
-    // Vect3 vector;
-    // vector.x = x;
-    // vector.y = y;
-    // vector.z = z;
-
-    // return vector;
-
-    double u = randomDouble(0.0,1.0);
-    double rho = maxRad * std::cbrt(u);
-
-    double cosTheta = randomDouble(-1.0, 1.0);
-    double sinTheta = std::sqrt(1.0 - cosTheta * cosTheta);
-    double phi = randomDouble(0.0, 2*pi);
-
-    Vect3 vector;
-    
-    vector.x = rho * sinTheta * std::cos(phi);
-    vector.y = rho * sinTheta * std::sin(phi);
-    vector.z = rho * cosTheta;
-
-    return vector;
-
-}
-
-Vect3 polarToCartesian(double r, double theta, double phi) {
-    Vect3 vector;
-    vector.x = r * std::sin(theta)*std::cos(phi);
-    vector.y = r * std::sin(theta)*std::sin(phi);
-    vector.z = r * std::cos(theta);
-    return vector;
-}
-
-
-Vect3 generateDisk(double maxRad, double flattening, Vect3 axis) {
-    Vect3 n = axis.normalise();
-
-    if (flattening < 0.0) flattening = 0.0;
-    if (flattening > 1.0) flattening = 1.0;
-
-    Vect3 temp;
-    temp = {0.0, 0.0, 1.0};
-    if (temp.cross(n) == Vect3{0,0,0}) {
-        temp = {1.0, 0.0, 0.0};
-    }
-
-    Vect3 e1 = temp.cross(n).normalise();
-    Vect3 e2 = n.cross(e1);
-
-    double u = randomDouble(0.0, 1.0);
-    double rho = maxRad * std::cbrt(u);
-
-    double cosTheta = randomDouble(-1.0, 1.0);
-    double sinTheta = std::sqrt(1.0 - cosTheta * cosTheta);
-    double phi = randomDouble(0.0, 2.0 * pi);
-
-    double xLocal = rho * sinTheta * std::cos(phi);
-    double yLocal = rho * sinTheta * std::sin(phi);
-
-    double zLocal = flattening * rho * cosTheta;
-
-    Vect3 vector = e1 * xLocal + e2 * yLocal + n * zLocal;
-
-    return vector;
-}
-
-
-
-//Compute the velocity of a particle at x,y,z
-Vect3 globularVel(Vect3 pos, double totalMass) {
-    double velScale;
-    double radius = pythagoras(pos);
-    double e = 1e12;
-    velScale = 2* pow((G*totalMass/(radius+e)),0.5);
-
-    double x = pos.x;
-    double y = pos.y;
-    double z = pos.z;
-
-    // double velx = randomDouble(0,1)-0.5;
-    // double vely = randomDouble(0,1)-0.5;
-    // double velz = -(velx*x+vely*y)/z;
-
-    // double mag = pythagoras(velx,vely,velz);
-
-    // velx = 2.5*velx/mag*velScale;
-    // vely = 0.1*2*vely/mag*velScale;
-    // velz = 2.5*velz/mag*velScale;
-
-
-    //Cylindrical Polar
-    double r = sqrt(x*x+z*z);
-    double phi = atan2(z,x);
-    //r velocity ~ 0
-    double dr_dt = randomDouble(-0.1,0.1);
-    //y velocity ~ 0
-    double dy_dt = randomDouble(-0.2,0.2);
-    //phi velocity - rotation
-    double omega = sqrt(G*totalMass/(radius*radius*radius));
-    double velx = dr_dt*cos(phi)-r*omega*sin(phi);
-    double vely = dy_dt;
-    double velz = dr_dt*sin(phi)+r*omega*cos(phi);
-
-    double mag = pythagoras(velx,vely,velz);
-
-    // velx = velx/mag*velScale;
-    // vely = vely/mag*velScale;
-    // velz = velz/mag*velScale;
-    
-
-    Vect3 vector;
-    vector.x = velx;
-    vector.y = vely;
-    vector.z = velz;
-
-    // int sign = randomSign();
-    // vector = vector * sign;
-
-    return vector;
-
-}
-
-Vect3 diskVelocity(Vect3 pos, double orbitMass, Vect3 axis) {
-    Vect3 n = axis.normalise();
-
-    Vect3 radial = pos - n * pos.dot(n);
-
-    double r = radial.magnitude();
-
-    Vect3 tangent = n.cross(radial).normalise();
-
-    double speed = std::sqrt(G * orbitMass / r);
-
-    return tangent * speed;
-}
-
-Vect3 diskVelocity(Vect3 pos, double orbitMass, Vect3 axis, double softening) {
-    Vect3 n = axis.normalise();
-
-    Vect3 radial = pos - n * pos.dot(n);
-    double orbitalRadius = radial.magnitude();
-
-    Vect3 tangent = n.cross(radial).normalise();
-
-    double distanceFromCentre = pos.magnitude();
-
-    double softenedDistance2 = distanceFromCentre * distanceFromCentre + softening * softening;
-
-    double softenedDistance = std::sqrt(softenedDistance2);
-
-    double speed = std::sqrt(G * orbitMass * orbitalRadius * orbitalRadius / (softenedDistance2 * softenedDistance));
-
-    return tangent * speed;
-}
-
-
-
+//Assigns particle colour by distance from origin
 Color distanceColour(const Particle& particle, double plotSize) {
     double distance = particle.getPos().magnitude();
     //plotSize/2 <1/3, <2/3, <3/3, else
@@ -474,11 +457,7 @@ Color distanceColour(const Particle& particle, double plotSize) {
     }
 }
 
-
-
-std::vector<Color> colourList = {RED,GREEN,BLUE,ORANGE,PURPLE,GREEN,MAGENTA,SKYBLUE};
-
-
+//Settings Structs
 struct UserSettings {
     //Directly Modifiable
     //Toggles
@@ -533,6 +512,10 @@ struct AllSettings {
     OneParticleSettings particle;
 };
 
+//PRESETS - TO DO
+
+
+//Initial Condition Generation
 class Cluster {
 private:
     Vect3 centrepos;
@@ -556,14 +539,14 @@ public:
     }
     //Calculate total mass within the radius of a particle
     double enclosedMass(const Particle& particle) const {
-        Vect3 relativePos = particle.getPos() - centrepos;
+        Vect3 relativePos = particle.getPos();
         double radius = relativePos.magnitude();
 
         double mass = 0.0;
 
-        for (int p = 0; p < particles.size(); p++) {
+        for (size_t p = 0; p < particles.size(); p++) {
             Particle other = particles[p];
-            Vect3 otherRelativePos = other.getPos() - centrepos;
+            Vect3 otherRelativePos = other.getPos();
             double otherRadius = otherRelativePos.magnitude();
 
             if (otherRadius < radius) {
@@ -575,7 +558,7 @@ public:
     }
     void AddCentralMass(double mass) {
         if (!centralMassExists) {
-            particles.push_back(Particle{mass,centrepos,vel});
+            particles.push_back(Particle{mass,Vect3{0,0,0},Vect3{0,0,0}});
             centralMassExists=true;
         }
     }
@@ -605,7 +588,7 @@ public:
     }
 
     void reframeParticles() {
-        for (int i = 0; i < particleCount; i++) {
+        for (size_t i = 0; i < particles.size(); i++) {
             particles[i].setPos(particles[i].getPos()+centrepos);
             particles[i].setVel(particles[i].getVel()+vel);
         }
@@ -700,6 +683,7 @@ std::vector<int> GenerateClusterSizes(int clusters, int particles) {
     return sizes;
 }
 
+//Simulation Class - Should be self-contained (as much as possible)
 class Simulation {
 private:
     AllSettings settings;
@@ -790,18 +774,6 @@ private:
     }
     //Colour options
     void colour_options() {
-        // if (settings.randomColours) {
-        //     for (Particle& particle : particles) {
-        //         particle.setColour(randomColour(colourList));
-        //     }
-        // }
-
-        // else if (settings.distanceColours) {
-        //     for (Particle& particle : particles) {
-        //         particle.setColour(distanceColour(particle, settings.plotSize));
-        //     }
-        // }
-
         switch (settings.user.selectedColourOption) {
             case 0:
                 break;
@@ -819,9 +791,7 @@ private:
                 break;
         } 
 
-
-
-
+        //Set central mass to yellow in single cluster mode
         if (particles.empty() == false && settings.user.enableCentralMass && settings.init.clusterCount == 1) {
             particles.back().setColour(YELLOW);
         }
@@ -843,7 +813,7 @@ private:
         else {
             std::vector<int> split = GenerateClusterSizes(settings.init.clusterCount,settings.user.particleN);
             for (int c = 0; c < settings.init.clusterCount; c++) {
-                Vect3 clusterCentre = randomSph(settings.user.plotSize);
+                Vect3 clusterCentre = 2*randomSph(settings.user.plotSize);
                 Vect3 clusterVelocity{0,0,0};
                 Vect3 clusterAxis = randomAxis();
                 double clusterFlattening = randomDouble(0,1);
@@ -855,7 +825,8 @@ private:
                 }
 
                 if (settings.user.selectedColourOption == 3) {
-                    cluster.setClusterColour(randomColour(colourList));
+                    // cluster.setClusterColour(randomColour(colourList));
+                    cluster.setClusterColour(colourList[c%colourList.size()]);
                 }
 
                 cluster.configureSoftening(settings.user.plotSize);
@@ -899,7 +870,7 @@ private:
         totalMass = 0.0;
         minMass = 1e64;
         maxMass = 0.0;
-        for (int i = 0; i < particles.size(); i++) {
+        for (size_t i = 0; i < particles.size(); i++) {
             double particleMass = particles[i].getMass();
             totalMass += particleMass;
             if (particleMass > maxMass) {
@@ -938,7 +909,7 @@ private:
 
         double radius = pythagoras(ppos);
         double mass = 0;
-        for (int p = 0; p < particles.size(); p++) {
+        for (size_t p = 0; p < particles.size(); p++) {
             Vect3 currentPos = particles[p].getPos();
 
             double currentRadius = pythagoras(currentPos);
@@ -948,17 +919,17 @@ private:
         }
         return mass;
     }
-    // Create list containing the indices of each pair of particles
-    void create_particle_pairs() {
-        particlePairs.clear();
+    // // Create list containing the indices of each pair of particles
+    // void create_particle_pairs() {
+    //     particlePairs.clear();
 
-        for (int i = 0; i < particles.size(); i++) {
-            for (int j = i+1; j < particles.size(); j++) {
-                std::vector<int> pair = {i,j}; 
-                particlePairs.push_back(pair);
-            }
-        }
-    }
+    //     for (int i = 0; i < particles.size(); i++) {
+    //         for (int j = i+1; j < particles.size(); j++) {
+    //             std::vector<int> pair = {i,j}; 
+    //             particlePairs.push_back(pair);
+    //         }
+    //     }
+    // }
 
     // Calculate the distance between two particles
     double distanceCalc(const Particle &p1, const Particle &p2) {
@@ -995,8 +966,8 @@ private:
     void calculateForces() {
         resetForces();
 
-        for (int i = 0; i < particles.size(); i++) {
-            for (int j = i+1; j < particles.size(); j++) {
+        for (size_t i = 0; i < particles.size(); i++) {
+            for (size_t j = i+1; j < particles.size(); j++) {
                 Vect3 force = forceCalc(particles[i],particles[j]);
                 particles[i].addForce(force);
                 particles[j].addForce(force, -1);
@@ -1007,39 +978,29 @@ private:
 public:
     //Update the simulation for each timestep
     void update() {
-        // for (int p = 0; p < particlePairs.size(); p++) {
-        //     Vect3 force = forceCalc(particles[particlePairs[p][0]],particles[particlePairs[p][1]]);
 
-        //     particles[particlePairs[p][0]].addForce(force);
-        //     particles[particlePairs[p][1]].addForce(force, -1);
-        // }
-
-        const auto updateStart = std::chrono::steady_clock::now();
+        const auto updateStart = std::chrono::steady_clock::now(); //Update timer
 
         if (forcesExist == false) {
             calculateForces();
             forcesExist = true;
         }
 
-        for (int i = 0; i < particles.size(); i++) {
+        for (size_t i = 0; i < particles.size(); i++) {
             particles[i].calcVel(timestep/2);
         }
 
-        for (int i = 0; i < particles.size(); i++) {
+        for (size_t i = 0; i < particles.size(); i++) {
             particles[i].calcPos(timestep);
         }
 
         calculateForces();
 
-        for (int i = 0; i < particles.size(); i++) {
+        for (size_t i = 0; i < particles.size(); i++) {
             particles[i].calcVel(timestep/2);
         }
 
-        for (int i = 0; i < particles.size(); i++) {
-            // particles[i].calcVel(timestep);
-            // particles[i].calcPos(timestep);
-            // particles[i].resetForce();
-
+        for (size_t i = 0; i < particles.size(); i++) {
             Vect3 pos = particles[i].getPos();
             float renderScale = 10.0f / settings.user.plotSize;
 
@@ -1113,7 +1074,7 @@ public:
 };
 
 
-// Drawing Functions -----
+// Drawing/Rendering Functions
 //Enable user control of camera view (zoom and rotate)
 void UpdateOrbitCamera(Camera3D& camera, float& yaw, float& pitch, float& distance)
 {
@@ -1128,25 +1089,21 @@ void UpdateOrbitCamera(Camera3D& camera, float& yaw, float& pitch, float& distan
     // Limit the pitch so the camera does not flip upside down.
     const float pitchLimit = 1.5f;
 
-    if (pitch > pitchLimit)
-    {
+    if (pitch > pitchLimit) {
         pitch = pitchLimit;
     }
 
-    if (pitch < -pitchLimit)
-    {
+    if (pitch < -pitchLimit) {
         pitch = -pitchLimit;
     }
 
     distance -= GetMouseWheelMove() * 1.0f;
 
-    if (distance < 3.0f)
-    {
+    if (distance < 3.0f) {
         distance = 3.0f;
     }
 
-    if (distance > 100.0f)
-    {
+    if (distance > 100.0f) {
         distance = 100.0f;
     }
 
@@ -1170,52 +1127,6 @@ void UpdateOrbitCamera(Camera3D& camera, float& yaw, float& pitch, float& distan
     camera.position.z = camera.target.z + distance * cosf(pitch) * cosf(yaw);
 }
 
-//Allow the user to move a particle mid-simulation with WASD
-void UpdateParticlePos(Particle &particle, UserSettings settings) {
-    Vect3 ppos = particle.getPos();
-    double x = ppos.x;
-    double y = ppos.y;
-    double z = ppos.z;
-    bool changed = false;
-    if (IsKeyDown(KEY_S)) {
-        x = x + settings.plotSize/120;
-        changed = true;
-    }
-    if (IsKeyDown(KEY_W)) {
-        x = x - settings.plotSize/120;
-        changed = true;
-    }
-    if (IsKeyDown(KEY_D)) {
-        z = z - settings.plotSize/120;
-        changed = true;
-    }
-    if (IsKeyDown(KEY_A)) {
-        z = z + settings.plotSize/120;
-        changed = true;
-    }
-
-    if (changed) {
-        Vect3 newPos;
-        newPos.set(x,y,z);
-        particle.setPos(newPos);
-    }
-
-}
-
-//Allow the user the change the mass of a particle with R/F
-void UpdateParticleMass(Particle &particle) {
-    double mass = particle.getMass();
-
-    if (IsKeyDown(KEY_R)) {
-        mass *= 1.05;
-    }
-    if (IsKeyDown(KEY_F)) {
-        mass *= 0.95;
-    }
-
-    particle.setMass(mass);
-}
-
 //Toggle Info
 bool checkHideInfo(bool hideInfo) {
     if (IsKeyPressed(KEY_F3)) {
@@ -1224,17 +1135,6 @@ bool checkHideInfo(bool hideInfo) {
     else {
         return hideInfo;
     }
-}
-
-//Change Sim Speed
-double UpdateSimSpeed(double targetFramesPerSecond) {
-    if (IsKeyPressed(KEY_EQUAL)) {
-        targetFramesPerSecond += 10;
-    };
-    if (IsKeyPressed(KEY_MINUS) && targetFramesPerSecond > 0) {
-        targetFramesPerSecond -= 10;
-    }
-    return targetFramesPerSecond;
 }
 
 // Calculate animation sphere size
@@ -1282,14 +1182,72 @@ float GetVisualRadius(double mass) {
     return minRadius + t * (maxRadius - minRadius);
 }
 
-
-
 void DrawTrail(const Particle &particle) {
-    for (int i = 1; i < particle.trail.size(); i++) {
+    for (size_t i = 1; i < particle.trail.size(); i++) {
         DrawLine3D(particle.trail[i-1], particle.trail[i], particle.getColour());
     }
 }
 
+//Live sim controls
+//Allow the user to move a particle mid-simulation with WASD 
+void UpdateParticlePos(Particle &particle, UserSettings settings) {
+    Vect3 ppos = particle.getPos();
+    double x = ppos.x;
+    double y = ppos.y;
+    double z = ppos.z;
+    bool changed = false;
+    if (IsKeyDown(KEY_S)) {
+        x = x + settings.plotSize/120;
+        changed = true;
+    }
+    if (IsKeyDown(KEY_W)) {
+        x = x - settings.plotSize/120;
+        changed = true;
+    }
+    if (IsKeyDown(KEY_D)) {
+        z = z - settings.plotSize/120;
+        changed = true;
+    }
+    if (IsKeyDown(KEY_A)) {
+        z = z + settings.plotSize/120;
+        changed = true;
+    }
+
+    if (changed) {
+        Vect3 newPos;
+        newPos.set(x,y,z);
+        particle.setPos(newPos);
+    }
+
+}
+
+//Allow the user the change the mass of a particle with R/F
+void UpdateParticleMass(Particle &particle) {
+    double mass = particle.getMass();
+
+    if (IsKeyDown(KEY_R)) {
+        mass *= 1.05;
+    }
+    if (IsKeyDown(KEY_F)) {
+        mass *= 0.95;
+    }
+
+    particle.setMass(mass);
+}
+
+//Change Sim Speed
+double UpdateSimSpeed(double targetFramesPerSecond) {
+    if (IsKeyPressed(KEY_EQUAL)) {
+        targetFramesPerSecond += 10;
+    };
+    if (IsKeyPressed(KEY_MINUS) && targetFramesPerSecond > 0) {
+        targetFramesPerSecond -= 10;
+    }
+    return targetFramesPerSecond;
+}
+
+
+//GUI Control Option Classes
 class IntSlider {
 private:
     std::string name;
@@ -1346,18 +1304,6 @@ public:
     }
 
     void draw(float yposition) {
-        // float sliderValue = static_cast<float>(*outputValue);
-
-        // //Draw slider - set position and limits
-        // GuiSlider(Rectangle{40, yposition, 300, 20}, lowLimitStr.c_str(), highLimitStr.c_str(), &sliderValue, static_cast<float>(lowLimit), static_cast<float>(highLimit));
-
-        // // //Set public value to slider value
-        // *outputValue = static_cast<int>(roundf(sliderValue));
-        // *outputValue = Clamp(*outputValue, lowLimit, highLimit);
-
-        // //Draw slider text
-        // DrawText(TextFormat("%s: %i", sliderText.c_str(), *outputValue), 40, yposition+30, 20, DARKGRAY);
-
         float sliderValue = static_cast<float>(std::log10(*outputValue));
 
         GuiSlider(Rectangle{40, yposition, 300, 20}, lowLimitStr.c_str(), highLimitStr.c_str(), &sliderValue, std::log10(lowLimit), std::log10(highLimit));
@@ -1387,22 +1333,13 @@ public:
     void draw(float yposition) {
         bool ticked = *outputValue;
 
-        //Draw slider - set position and limits
-        // GuiSlider(Rectangle{40, yposition, 300, 20}, lowLimitStr.c_str(), highLimitStr.c_str(), &sliderValue, static_cast<float>(lowLimit), static_cast<float>(highLimit));
         GuiCheckBox(Rectangle{40, yposition, 20, 20}, TextFormat("%s", tickboxText.c_str()), &ticked);
 
-        // //Set public value to slider value
+        // //Set public value
         *outputValue = ticked;
-
-
     }
 };
 
-enum class ColourOptions {
-    White,
-    RandomColours,
-    DistanceColours
-};
 
 struct DropdownOptionSetup {
     std::string display_name;
@@ -1440,31 +1377,18 @@ public:
     }
 
     void draw(float yposition) {
-        // bool ticked = *outputValue;
-
-        //Draw slider - set position and limits
-        // GuiSlider(Rectangle{40, yposition, 300, 20}, lowLimitStr.c_str(), highLimitStr.c_str(), &sliderValue, static_cast<float>(lowLimit), static_cast<float>(highLimit));
-        // GuiCheckBox(Rectangle{40, yposition, 20, 20}, TextFormat("%s", tickboxText.c_str()), &ticked);
         DrawText(TextFormat("%s:", dropdownText.c_str()), 40, yposition, 10, DARKGRAY);
 
-
-
-        // //Set public value to slider value
-        // *outputValue = ticked;
         DrawText(TextFormat("%s", options[selectedOption].description.c_str()), 40, yposition+50, 10, DARKGRAY);
 
-
-        // if (GuiDropdownBox(Rectangle{150, yposition-10, 150, 30}, allOptionNames.c_str(), &selectedOption, editMode)) {
-        //     editMode = !editMode;
-        // }
         if (GuiDropdownBox(Rectangle{40, yposition+15, 150, 30}, allOptionNames.c_str(), &selectedOption, editMode)) {
             editMode = !editMode;
         }
     }
 };
 
-void DrawGridUnitOverlay(double plotSize)
-{
+//Info Boxes
+void DrawGridUnitOverlay(double plotSize) {
     double metresPerGridUnit = plotSize / 10.0;
 
     DrawRectangle(10, GetScreenHeight()-80, 500, 45, Fade(BLACK, 0.6f));
@@ -1472,8 +1396,7 @@ void DrawGridUnitOverlay(double plotSize)
     DrawText(TextFormat("1 grid unit = %.1e m / %.1e AU / %.1epc", metresPerGridUnit,metresPerGridUnit*AUpermetre,metresPerGridUnit*pcpermetre),15,GetScreenHeight()-68,20,RAYWHITE);
 }
 
-void DrawControlsOverlay()
-{
+void DrawControlsOverlay() {
     DrawRectangle(GetScreenWidth() - 310, GetScreenHeight()-150, 500, 145, Fade(BLACK, 0.6f));
 
     DrawText("Click+Drag: Rotate View",GetScreenWidth() - 295,GetScreenHeight()-145,20,RAYWHITE);
@@ -1488,8 +1411,7 @@ void DrawControlsOverlay()
 }
 
 
-void DrawTimeOverlay(double elapsedYears, double timestepYears, double yearsPerSecond, int updatesPerSecond)
-{
+void DrawTimeOverlay(double elapsedYears, double timestepYears, double yearsPerSecond, int updatesPerSecond) {
     DrawRectangle(10, 10, 360, 120, Fade(BLACK, 0.6f));
 
     DrawText(TextFormat("Elapsed time: %.2f years", elapsedYears), 15, 22, 20, RAYWHITE);
@@ -1501,9 +1423,8 @@ void DrawTimeOverlay(double elapsedYears, double timestepYears, double yearsPerS
     DrawText(TextFormat("Physics Updates Per Second: %i", updatesPerSecond), 15, 97, 20, RAYWHITE);
 }
 
-void DrawPerformanceOverlay(double lastUpdateMs, double averageUpdateMs)
-{
-    DrawRectangle(GetScreenWidth() - 310, 10, 300, 70, Fade(BLACK, 0.6f));
+void DrawPerformanceOverlay(double lastUpdateMs, double averageUpdateMs) {
+    DrawRectangle(GetScreenWidth() - 310, 10, 300, 85, Fade(BLACK, 0.6f));
 
     DrawText(TextFormat("Update: %.3f ms", lastUpdateMs), GetScreenWidth() - 295, 22, 20, RAYWHITE);
 
@@ -1513,17 +1434,13 @@ void DrawPerformanceOverlay(double lastUpdateMs, double averageUpdateMs)
 }
 
 
-enum class SetupScreen {
-    Main,
-    InitialConditions
-};
-
+//Setup GUI
 void OpenSetupGUI(AllSettings& settings) {
     float WINDOW_HEIGHT = 700;
     float WINDOW_WIDTH = 500;
 
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Gravity Simulation Settings");
-    SetTargetFPS(30);
+    SetTargetFPS(60);
 
     SetupScreen screen = SetupScreen::Main;
 
@@ -1613,9 +1530,6 @@ int main() {
     //Start Simulation
     Simulation sim(settings);
 
-    // momentum_centre();
-
-
     int windowWidth = 1200;
     int windowHeight = 1200;
 
@@ -1653,13 +1567,11 @@ int main() {
 
     SetTargetFPS(60);
 
-    // const std::vector<Particle> &particles = sim.getParticles();
-
     double targetUpdatesPerSecond = 60.0;
     double secondsPerUpdate = 1.0 / targetUpdatesPerSecond;
 
     const double maxFrameSeconds = 1.0/15;
-    const int maxUpdatesPerFrame = 5;
+    const int maxUpdatesPerFrame = 20;
 
     double accumulator = 0.0;
 
@@ -1708,7 +1620,7 @@ int main() {
 
         const std::vector<Particle> &particles = sim.getParticles();
 
-        for (int i = 0; i < particles.size(); i++) {
+        for (size_t i = 0; i < particles.size(); i++) {
             Vect3 ppos = particles[i].getPos();
             float renderScale = 10.0f / settings.user.plotSize;
 
@@ -1716,27 +1628,15 @@ int main() {
             float py = static_cast<float>(ppos.y * renderScale);
             float pz = static_cast<float>(ppos.z * renderScale);
 
-            // float circleSize = particles[i].getMass()/1.989e30; 
-            float circleSize;// = std::log(particles[i].getMass())/std::log((1.989e34))*2;
-            // circleSize = 0.3f * cbrt(particles[i].getMass()/totalMass);
-            // circleSize = GetVisualRadius(particles[i].getMass(), sim.getTotalMass(), sim.getMinMass(), sim.getMaxMass(), particles.size());
+            float circleSize;
+
             circleSize = GetVisualRadius(particles[i].getMass());
 
-            // if (particles[i].getMass() > 1e37) {
-            //     circleSize = 0.4f;
-            // }
+
             Vector3 pposV3 = ToVector3({px,py,pz});
 
             Color circleColor = particles[i].getColour();
-            // if (i == 0) {
-            //     circleColor = GREEN;
-            // }
-            // else if (i == particles.size()-1) {
-            //     circleColor = YELLOW;
-            // }
-            // else if (i == particles.size()-1) {
-            //     circleColor = RED;
-            // }
+
             if (settings.user.drawTrails) {
                 DrawTrail(particles[i]);
             }
@@ -1755,7 +1655,6 @@ int main() {
         }
 
         EndDrawing();
-        // sim.update();
     }
 
     CloseWindow();
