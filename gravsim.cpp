@@ -40,6 +40,36 @@ enum class ColourOptions {
     Cluster
 };
 
+enum class SystemPreset {
+    Clusters,
+    SolarSystem,
+    JupiterMoons,
+    GlobularCluster,
+    DiskGalaxy,
+    MilkyWay,
+    MWandAndromeda,
+    EllipticalGalaxy,
+    GalaxyCluster,
+    CosmicWeb
+};
+
+enum class ClusterShape {
+    Disk,
+    Sphere,
+};
+
+enum class VelocityScheme {
+    None,
+    Circular,
+    Random,
+    Virialised
+};
+
+enum class MassDistribution {
+    Uniform,
+    KroupaIMF,
+};
+
 enum class SetupScreen {
     Main,
     InitialConditions
@@ -469,7 +499,8 @@ struct UserSettings {
     int particleN = 300;
     double plotSize = 2e15;
     int maxTrailLength = 20;
-    int selectedColourOption = 1;
+    // int selectedColourOption = 1;
+    ColourOptions colourScheme = ColourOptions::White;
     int selectedWindowSize = 0;
 };
 
@@ -774,15 +805,15 @@ private:
     }
     //Colour options
     void colour_options() {
-        switch (settings.user.selectedColourOption) {
-            case 0:
+        switch (settings.user.colourScheme) {
+            case (ColourOptions::White):
                 break;
-            case 1:
+            case (ColourOptions::Random):
                 for (Particle& particle : particles) {
                     particle.setColour(randomColour(colourList));
                 }
                 break;
-            case 2:
+            case (ColourOptions::Distance):
                 for (Particle& particle : particles) {
                     particle.setColour(distanceColour(particle, settings.user.plotSize));
                 }
@@ -824,7 +855,7 @@ private:
                     cluster.AddCentralMass(5e33);
                 }
 
-                if (settings.user.selectedColourOption == 3) {
+                if (settings.user.colourScheme == ColourOptions::Cluster) {
                     // cluster.setClusterColour(randomColour(colourList));
                     cluster.setClusterColour(colourList[c%colourList.size()]);
                 }
@@ -1454,7 +1485,8 @@ void OpenSetupGUI(AllSettings& settings) {
 
     IntSlider clusterSlider(settings.init.clusterCount, "1", "10", 1, 10, "Number of Clusters");
 
-    Dropdown colourChoice(settings.user.selectedColourOption, "Colour Scheme");
+    int selectedColourIndex = static_cast<int>(settings.user.colourScheme);
+    Dropdown colourChoice(selectedColourIndex, "Colour Scheme");
     colourChoice.addOption({"White", 0, "All generated particles white"});
     colourChoice.addOption({"Random", 1, "All generated particles assigned random colours"});
     colourChoice.addOption({"Distance", 2, "Particles grouped and coloured by distance from centre"});
@@ -1489,6 +1521,7 @@ void OpenSetupGUI(AllSettings& settings) {
 
             colourChoice.draw(nextYpos);
             nextYpos += colourChoice.height;
+            settings.user.colourScheme = static_cast<ColourOptions>(selectedColourIndex);
 
             if (GuiButton(Rectangle{40, WINDOW_HEIGHT - 100, 400, 35}, "Initial Conditions")) {
                 screen = SetupScreen::InitialConditions;
