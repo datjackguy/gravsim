@@ -1226,6 +1226,14 @@ public:
     }
 };
 
+struct EnergyDiagnosticsResult {
+    double kineticEnergy = 0.0;
+    double potentialEnergy = 0.0;
+    int unboundParticles = 0;
+};
+
+
+
 class PhysicsDiagnostics {
 private:
     const std::vector<Particle>& particles;
@@ -1244,6 +1252,11 @@ private:
 
     int maxHistory = 300;
 
+    int currentUnboundParticles = 0;
+    double currentUnboundFraction = 0.0;
+
+    std::deque<double> unboundHistory;
+
 public:
     PhysicsDiagnostics(const std::vector<Particle>& particles, int maxHistory = 300)
         : particles(particles), maxHistory(maxHistory) {
@@ -1251,13 +1264,24 @@ public:
     }
 
     void initialise() {
-        initialKE = calculateKE();
-        initialPE = calculatePE();
+        EnergyDiagnosticsResult result = calculateEnergyDiagnostics();
+
+        initialKE = result.kineticEnergy;
+        initialPE = result.potentialEnergy;
         initialTotalEnergy = initialKE + initialPE;
 
         currentKE = initialKE;
         currentPE = initialPE;
         currentTotalEnergy = initialTotalEnergy;
+
+        currentUnboundParticles = result.unboundParticles;
+
+        if (!particles.empty()) {
+            currentUnboundFraction = static_cast<double>(currentUnboundParticles) / particles.size();
+        }
+        else {
+            currentUnboundFraction = 0.0;
+        }
 
         recordCurrentValues();
     }
@@ -1293,22 +1317,98 @@ public:
     }
 
     void sample() {
-        currentKE = calculateKE();
-        currentPE = calculatePE();
+        EnergyDiagnosticsResult result = calculateEnergyDiagnostics();
+
+        currentKE = result.kineticEnergy;
+        currentPE = result.potentialEnergy;
         currentTotalEnergy = currentKE + currentPE;
+
+        currentUnboundParticles = result.unboundParticles;
+
+        if (!particles.empty()) {
+            currentUnboundFraction = static_cast<double>(currentUnboundParticles) / particles.size();
+        }
+        else {
+            currentUnboundFraction = 0.0;
+        }
 
         recordCurrentValues();
     }
 
 private:
+    Vect3 calculateCentreVelocity() const {
+        Vect3 totalMomentum{0.0, 0.0, 0.0};
+        double totalMass = 0.0;
+
+        for (const Particle& particle : particles) {
+            double mass = particle.getMass();
+
+            totalMomentum += particle.getVel() * mass;
+            totalMass += mass;
+        }
+
+        return totalMomentum / totalMass;
+    }
+
+    EnergyDiagnosticsResult calculateEnergyDiagnostics() const {
+        EnergyDiagnosticsResult result;
+
+        std::vector<double> specificPotential(particles.size(), 0.0);
+
+        for (size_t i = 0; i < particles.size(); i++) {
+            for (size_t j = i + 1; j < particles.size(); j++) {
+                Vect3 separation = particles[i].getPos() - particles[j].getPos();
+                double r = separation.magnitude();
+
+                double soft1 = particles[i].getSoftening();
+                double soft2 = particles[j].getSoftening();
+                double pairSoftening = std::sqrt(soft1 * soft1 + soft2 * soft2);
+
+                double softenedDistance = std::sqrt(r * r + pairSoftening * pairSoftening);
+
+                double massI = particles[i].getMass();
+                double massJ = particles[j].getMass();
+
+                double pairPotentialEnergy = -G * massI * massJ / softenedDistance;
+
+                result.potentialEnergy += pairPotentialEnergy;
+
+                specificPotential[i] += -G * massJ / softenedDistance;
+                specificPotential[j] += -G * massI / softenedDistance;
+            }
+        }
+
+        Vect3 centreVelocity = calculateCentreVelocity();
+
+        for (size_t i = 0; i < particles.size(); i++) {
+            Vect3 relativeVelocity = particles[i].getVel() - centreVelocity;
+            double speed = relativeVelocity.magnitude();
+
+            double mass = particles[i].getMass();
+
+            double specificKineticEnergy = 0.5 * speed * speed;
+            double specificTotalEnergy = specificKineticEnergy + specificPotential[i];
+
+            result.kineticEnergy += mass * specificKineticEnergy;
+
+            if (specificTotalEnergy > 0.0) {
+                result.unboundParticles++;
+            }
+        }
+
+        return result;
+    }
+
     void recordCurrentValues() {
         KEhistory.push_back(currentKE);
         PEhistory.push_back(currentPE);
         energyHistory.push_back(currentTotalEnergy);
+        unboundHistory.push_back(static_cast<double>(currentUnboundParticles));
 
         trimHistory(KEhistory);
         trimHistory(PEhistory);
         trimHistory(energyHistory);
+        trimHistory(unboundHistory);
     }
 
     void trimHistory(std::deque<double>& history) {
@@ -1318,6 +1418,18 @@ private:
     }
 
 public:
+    int getCurrentUnboundParticles() const {
+        return currentUnboundParticles;
+    }
+
+    double getCurrentUnboundFraction() const {
+        return currentUnboundFraction;
+    }
+
+    const std::deque<double>& getUnboundHistory() const {
+        return unboundHistory;
+    }
+
     double getInitialKE() const {
         return initialKE;
     }
@@ -1862,12 +1974,15 @@ void DrawDiagnosticsOverlay(
     double currentPE,
     double initialEnergy,
     double currentEnergy,
+    int unboundParticles,
+    double unboundFraction,
     const std::deque<double>& KEhistory,
     const std::deque<double>& PEhistory,
-    const std::deque<double>& energyHistory
+    const std::deque<double>& energyHistory,
+    const std::deque<double>& unboundHistory
 ) {
     float panelWidth = 360.0f;
-    float panelHeight = 520.0f;
+    float panelHeight = 640.0f;
 
     float x = GetScreenWidth() - panelWidth - 20.0f;
     float y = (GetScreenHeight() - panelHeight) / 2.0f;
@@ -1894,13 +2009,16 @@ void DrawDiagnosticsOverlay(
     DrawText(TextFormat("E now:    %.3e J", currentEnergy), x + 12, y + 144, 14, RAYWHITE);
     DrawText(TextFormat("Error:    %.6f %%", energyErrorPercent), x + 12, y + 166, 16, RAYWHITE);
 
+    DrawText(TextFormat("Unbound:  %i / %.2f %%", unboundParticles, 100.0 * unboundFraction), x + 12, y + 188, 16, RAYWHITE);
+
     float graphX = x + 12;
     float graphW = panelWidth - 24;
-    float graphH = 90;
+    float graphH = 85;
 
-    DrawRollingGraph(KEhistory, Rectangle{graphX, y + 200, graphW, graphH}, "Kinetic Energy", SKYBLUE);
-    DrawRollingGraph(PEhistory, Rectangle{graphX, y + 300, graphW, graphH}, "Potential Energy", ORANGE);
-    DrawRollingGraph(energyHistory, Rectangle{graphX, y + 400, graphW, graphH}, "Total Energy", LIME);
+    DrawRollingGraph(KEhistory, Rectangle{graphX, y + 220, graphW, graphH}, "Kinetic Energy", SKYBLUE);
+    DrawRollingGraph(PEhistory, Rectangle{graphX, y + 315, graphW, graphH}, "Potential Energy", ORANGE);
+    DrawRollingGraph(energyHistory, Rectangle{graphX, y + 410, graphW, graphH}, "Total Energy", LIME);
+    DrawRollingGraph(unboundHistory, Rectangle{graphX, y + 505, graphW, graphH}, "Unbound Particles", RED);
 }
 
 
@@ -2138,7 +2256,6 @@ int main() {
         frameSeconds = std::min(frameSeconds,maxFrameSeconds);
 
         accumulator += frameSeconds;
-        energyTimer += frameSeconds;
 
         int updatesThisFrame = 0;
 
@@ -2157,8 +2274,15 @@ int main() {
             accumulator = 0.0;
         }
 
-        if (energyTimer >= 2.0) {
-            diagnostics.sample();
+        if (!hideDiagnostics) {
+            energyTimer += frameSeconds;
+
+            if (energyTimer >= 1.0) {
+                diagnostics.sample();
+                energyTimer = 0.0;
+            }
+        }
+        else {
             energyTimer = 0.0;
         }
 
@@ -2234,9 +2358,12 @@ int main() {
                 diagnostics.getCurrentPE(),
                 diagnostics.getInitialEnergy(),
                 diagnostics.getCurrentEnergy(),
+                diagnostics.getCurrentUnboundParticles(),
+                diagnostics.getCurrentUnboundFraction(),
                 diagnostics.getKEhistory(),
                 diagnostics.getPEhistory(),
-                diagnostics.getEnergyHistory()
+                diagnostics.getEnergyHistory(),
+                diagnostics.getUnboundHistory()
             );
         }
 
