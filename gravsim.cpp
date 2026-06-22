@@ -1449,18 +1449,31 @@ void UpdateOrbitCamera(Camera3D& camera, float& yaw, float& pitch, float& distan
         distance = 100.0f;
     }
 
-    //Move Camera Target
-    if (IsKeyDown(KEY_LEFT)) {
-        camera.target.x -= 0.1f;
-    }
-    if (IsKeyDown(KEY_RIGHT)) {
-        camera.target.x += 0.1f;
-    }
+    // Move Camera Target
+    float moveSpeed = 5.0f * GetFrameTime();
+
+    Vector3 forward = {-sinf(yaw), 0.0f, -cosf(yaw)};
+
+    Vector3 right = {cosf(yaw), 0.0f, -sinf(yaw)};
+
     if (IsKeyDown(KEY_UP)) {
-        camera.target.z -= 0.1f;
+        camera.target.x += forward.x * moveSpeed;
+        camera.target.z += forward.z * moveSpeed;
     }
+
     if (IsKeyDown(KEY_DOWN)) {
-        camera.target.z += 0.1f;
+        camera.target.x -= forward.x * moveSpeed;
+        camera.target.z -= forward.z * moveSpeed;
+    }
+
+    if (IsKeyDown(KEY_RIGHT)) {
+        camera.target.x += right.x * moveSpeed;
+        camera.target.z += right.z * moveSpeed;
+    }
+
+    if (IsKeyDown(KEY_LEFT)) {
+        camera.target.x -= right.x * moveSpeed;
+        camera.target.z -= right.z * moveSpeed;
     }
 
     // Convert yaw, pitch and distance into a 3D camera position.
