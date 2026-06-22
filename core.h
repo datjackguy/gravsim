@@ -12,6 +12,8 @@ constexpr double M0 = 1.989e30; //kg
 constexpr double secondsPerYear = 365.25 * 24.0 * 60.0 * 60.0;
 constexpr double AUpermetre = 1/1.496e11;
 constexpr double pcpermetre = 1/3.086e16;
+const std::vector<Color> colourList = {RED,GREEN,BLUE,ORANGE,PURPLE,MAGENTA,SKYBLUE,PINK,GOLD,MAROON,LIME,DARKGREEN};
+
 
 //Enums
 enum class ColourOptions {
@@ -126,12 +128,12 @@ inline Vect3 operator*(double scalar, const Vect3& vector) {
 
 //Settings
 struct OneParticleSettings {
-    double mass;
-    Vect3 position; //Set manually
-    Vect3 velocity; //Set manually or automatically if autoOrbit = true;
-    Vect3 axis; //Accounts for inclination and orbit direction
-    double eccentricity;
-    bool autoOrbit;
+    double mass = 1e30;
+    Vect3 position = {0,0,0}; //Set manually
+    Vect3 velocity = {0,0,0}; //Set manually or automatically if autoOrbit = true;
+    Vect3 axis = {0,1,0}; //Accounts for inclination and orbit direction
+    double eccentricity = 0.0;
+    bool autoOrbit = false;
     Color particleColour = BLUE;
 };
 

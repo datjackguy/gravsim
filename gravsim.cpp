@@ -1,4 +1,4 @@
-//Compile Portable -- g++ -O3 gravsim.cpp presets.cpp -o gravsim.exe -I include -L lib -lraylib -lgdi32 -lwinmm -static-libgcc -static-libstdc++ -static
+//Compile Portable -- g++ -O3 gravsim.cpp presets.cpp particle.cpp -o gravsim.exe -I include -L lib -lraylib -lgdi32 -lwinmm -static-libgcc -static-libstdc++ -static
 
 //Includes
 #include <iostream>
@@ -9,6 +9,7 @@
 #include <chrono>
 #include <algorithm>
 #include <deque>
+#include <numeric>
 
 #include "raylib.h"
 #define RAYGUI_IMPLEMENTATION
@@ -18,8 +19,8 @@
 //Links
 #include "core.h"
 #include "presets.h"
+#include "particle.h"
 
-const std::vector<Color> colourList = {RED,GREEN,BLUE,ORANGE,PURPLE,MAGENTA,SKYBLUE,PINK,GOLD,MAROON,LIME,DARKGREEN};
 
 //Utility Functions/Maths
 //Initialise random generator
@@ -266,89 +267,6 @@ Vect3 diskVelocity(Vect3 pos, double orbitMass, Vect3 axis, double softening) {
 
     return tangent * speed;
 }
-
-//Particle Class
-class Particle {
-private:
-    double mass;
-    Vect3 pos;
-    Vect3 vel;
-    Vect3 force;
-    Color colour = WHITE;
-    double softening = 0.0;
-
-public:
-    // std::vector<Vector3> trail;
-    // Constructor
-    Particle(OneParticleSettings settings)
-        : mass(settings.mass), pos(settings.position), vel(settings.velocity), colour(settings.particleColour) {
-    }
-
-    // Add (or subtract) force from total force acting on particle
-    void addForce(Vect3 fnew, int sign = 1) {
-        force += sign * fnew;
-    }
-
-    // Calculate the new position
-    void calcPos(double dt) {
-        pos += vel * dt;
-    }
-
-    // Calculate the new velocity
-    void calcVel(double dt) {
-        vel += force * dt / mass;
-    }
-
-    // Reset force vector to 0
-    void resetForce() {
-        force.set(0,0,0);
-    }
-
-    //GETTERS/SETTERS
-    void setColour(Color newColour) {
-        colour = newColour;
-    }
-
-    Color getColour() const {
-        return colour;
-    }
-
-    double getMass() const {
-        return mass;
-    }
-
-    void setMass(double newMass) {
-        mass = newMass;
-    }
-
-    Vect3 getForce() const {
-        return force;
-    }
-
-    Vect3 getPos() const {
-        return pos;
-    }
-
-    void setPos(Vect3 newPos) {
-        pos = newPos;
-    }
-
-    Vect3 getVel() const {
-        return vel;
-    }
-
-    void setVel(Vect3 newVel) {
-        vel = newVel;
-    }
-
-    void setSoftening(double newSoft) {
-        softening = newSoft;
-    }
-
-    double getSoftening() const {
-        return softening;
-    }
-};
 
 //Assigns particle colour by distance from origin
 Color distanceColour(const Particle& particle, double plotSize) {
