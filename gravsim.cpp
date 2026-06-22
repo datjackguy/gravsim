@@ -1,18 +1,9 @@
-//Compile Portable -- g++ gravsim.cpp -o gravsim.exe -I include -L lib -lraylib -lgdi32 -lwinmm -static-libgcc -static-libstdc++ -static
-//2 -- g++ gravsim.cpp -o gravsim.exe -I include -L lib -static -static-libgcc -static-libstdc++ -lraylib -lopengl32 -lgdi32 -lwinmm
-//3 Optimised g++ -O2 gravsim.cpp -o gravsim.exe -I include -L lib -lraylib -lgdi32 -lwinmm -static-libgcc -static-libstdc++ -static
-//4 g++ -O3 gravsim.cpp -o gravsim.exe -I include -L lib -lraylib -lgdi32 -lwinmm -static-libgcc -static-libstdc++ -static
-//5 With Warning -- g++ -std=c++20 -Wall -Wextra -Wpedantic -O3 gravsim.cpp -o gravsim.exe -I include -L lib -lraylib -lgdi32 -lwinmm -static-libgcc -static-libstdc++ -static
-
-//To-Do
-//Colour options enum
-//Presets enum - Solar System (Plus Pluto, Moon and Asteroid Belt), Jupiter system, Globular Cluster, Milky Way Scale, Milky Way / Andromeda Collision 
-//Timestep/Softening Automation
+//Compile Portable -- g++ -O3 gravsim.cpp presets.cpp -o gravsim.exe -I include -L lib -lraylib -lgdi32 -lwinmm -static-libgcc -static-libstdc++ -static
 
 //Includes
 #include <iostream>
-#include <cmath>
-#include <vector>
+// #include <cmath>
+// #include <vector>
 #include <random>
 #include <thread>
 #include <chrono>
@@ -24,58 +15,11 @@
 #include "raygui.h"
 #include "raymath.h"
 
-//Global Constants
-const double pi = 3.141592653589793;
-const double G = 6.67430e-11;
-const double M0 = 1.989e30; //kg
-const double secondsPerYear = 365.25 * 24.0 * 60.0 * 60.0;
-const double AUpermetre = 1/1.496e11;
-const double pcpermetre = 1/3.086e16;
+//Links
+#include "core.h"
+#include "presets.h"
+
 const std::vector<Color> colourList = {RED,GREEN,BLUE,ORANGE,PURPLE,MAGENTA,SKYBLUE,PINK,GOLD,MAROON,LIME,DARKGREEN};
-
-//Enums
-enum class ColourOptions {
-    White,
-    Random,
-    Distance,
-    Cluster,
-    None
-};
-
-enum class SystemPreset {
-    Clusters,
-    SolarSystem,
-    MilkyWay,
-    JupiterMoons,
-    GlobularCluster,
-    DiskGalaxy,
-    MWandAndromeda,
-    EllipticalGalaxy,
-    GalaxyCluster,
-    CosmicWeb
-};
-
-enum class ClusterShape {
-    Disk,
-    Sphere,
-};
-
-enum class VelocityScheme {
-    None,
-    Circular,
-    Random,
-    Virialised
-};
-
-enum class MassDistribution {
-    Uniform,
-    KroupaIMF,
-};
-
-enum class SetupScreen {
-    Main,
-    InitialConditions
-};
 
 //Utility Functions/Maths
 //Initialise random generator
@@ -174,71 +118,7 @@ std::vector<double> generate_masses(int N) {
     return masses;
 }
 
-struct Vect3 {
-    double x = 0;
-    double y = 0;
-    double z = 0;
-    double magnitude() const {
-        return pythagoras(x,y,z);
-    }
-    void set(double x2, double y2, double z2) {
-        x = x2;
-        y = y2;
-        z = z2;
-    }
-    Vect3 normalise() const {
-        double mag = magnitude();
-        return {x / mag,y / mag,z / mag};
-    }
-    Vect3 cross(const Vect3& other) const {
-        return {y * other.z - z * other.y, z * other.x - x * other.z, x * other.y - y * other.x};
-    }
-    Vect3& operator+=(const Vect3& other) {
-        x += other.x;
-        y += other.y;
-        z += other.z;
-        return *this;
-    }
-    Vect3& operator-=(const Vect3& other) {
-        x -= other.x;
-        y -= other.y;
-        z -= other.z;
-        return *this;
-    }
-    Vect3 operator+(const Vect3& other) const {
-        Vect3 result = *this;
-        result += other;
-        return result;
-    }
-    Vect3 operator-(const Vect3& other) const {
-        Vect3 result = *this;
-        result -= other;
-        return result;
-    }
-    Vect3 operator*(double scalar) const {
-        return {x * scalar, y * scalar, z * scalar};
-    }
-    Vect3 operator/(double scalar) const {
-        return {x / scalar, y / scalar, z / scalar};
-    }
-    bool operator==(const Vect3& other) const {
-        if (x == other.x && y == other.y && z == other.z) {
-            return true;
-        }
-        else {
-            return false;
-        }
-    }
-    double dot(const Vect3& other) const {
-        return x * other.x + y * other.y + z * other.z;
-    }
-};
-
-
 //Vect3-Dependent Utilities
-Vect3 operator*(double scalar, const Vect3& vector) {
-    return vector * scalar;
-}
 
 Vect3 randomAxis() {
     double x = randomDouble(0,1);
@@ -387,16 +267,6 @@ Vect3 diskVelocity(Vect3 pos, double orbitMass, Vect3 axis, double softening) {
     return tangent * speed;
 }
 
-struct OneParticleSettings {
-    double mass;
-    Vect3 position; //Set manually
-    Vect3 velocity; //Set manually or automatically if autoOrbit = true;
-    Vect3 axis; //Accounts for inclination and orbit direction
-    double eccentricity;
-    bool autoOrbit;
-    Color particleColour = BLUE;
-};
-
 //Particle Class
 class Particle {
 private:
@@ -497,63 +367,6 @@ Color distanceColour(const Particle& particle, double plotSize) {
         return GREEN;
     }
 }
-
-//Settings Structs
-struct UserSettings {
-    //Directly Modifiable
-    //Toggles
-    // bool randomColours = false;
-    // bool distanceColours = false;
-    bool enableCentralMass = true;
-    bool drawTrails = true;
-    //Values
-    int particleN = 300;
-    double plotSize = 2e15;
-    int maxTrailLength = 200;
-    // int selectedColourOption = 1;
-    ColourOptions colourScheme = ColourOptions::Random;
-    int selectedWindowSize = 0;
-};
-
-struct InitSettings {
-    //Dropdowns/Enum
-    SystemPreset preset = SystemPreset::Clusters;
-
-    int clusterCount = 1;
-    //Add cluster menu
-};
-
-struct ClusterSettings {
-    double size; //Radius - determines particle count (distributed from total UserSettings.particleN)
-    double distancefromorigin; //Distance of cluster from 0,0,0;
-    Vect3 position; //Position of cluster centre - default determined randomly from distancefromorigin
-    
-    ClusterShape shape = ClusterShape::Disk;
-    double flattening;
-    Vect3 axis; //Rotation axis of disk
-    double velocityScheme = 0; //0=Perfect circular orbit, 1=Purely Random?
-    double velocityScale = 0; //-1=Slower than orbit, 0=Perfect Circular, 1=Faster Than Circular
-    Vect3 systemVelocity = {0,0,0}; //Motion of cluster in simulation frame
-    bool centralMassEnabled = true; //Central Mass in cluster
-    double centralMass = 1e34;
-    MassDistribution IMF = MassDistribution::KroupaIMF; //0 = Uniform Random Masses, 1 = Kroupa 2002 IMF-like
-    double lowMassBound = 1 * M0;
-    double highMassBound = 100 * M0;
-    int particleCount;
-    Color clusterColour = WHITE;
-    double clusterGeneratedMass;
-    bool rescaleMasses;
-};
-
-
-struct AllSettings {
-    UserSettings user;
-    InitSettings init;
-    ClusterSettings cluster;
-    OneParticleSettings particle;
-};
-
-//PRESETS - TO DO
 
 
 //Initial Condition Generation
@@ -784,31 +597,7 @@ public:
     }
 };
 
-//Holds candidate objects (particles/clusters) while user configures
-class InitialisationQueue {
-private:
-    std::vector<OneParticleSettings> particles;
-    std::vector<ClusterSettings> clusters;
-public:
-    std::vector<OneParticleSettings> getParticles() {
-        return particles;
-    }
-    std::vector<ClusterSettings> getClusters() {
-        return clusters;
-    }
-    void addParticle(OneParticleSettings settings) {
-        particles.push_back(settings);
-    }
-    void addCluster(ClusterSettings settings) {
-        clusters.push_back(settings);
-    }
-    void removeParticle(int index) {
-        particles.erase(particles.begin() + index);
-    }
-    void removeCluster(int index) {
-        clusters.erase(clusters.begin() + index);
-    }
-};
+
 
 //Initialise all particles in queue
 std::vector<Particle> InitialiseAll(InitialisationQueue queue) {
@@ -837,7 +626,7 @@ std::vector<Particle> InitialiseAll(InitialisationQueue queue) {
             cluster.assignVelocities();
         }
         else {
-            cluster.assignVirialVelocities(0.3);
+            cluster.assignVirialVelocities(0.6);
         }
 
         cluster.reframeParticles();
@@ -903,7 +692,7 @@ void autoClusters(const AllSettings &settings, InitialisationQueue &queue) {
             ClusterSettings clustersettings;
             clustersettings.position = 1.5*randomSph(settings.user.plotSize);
             clustersettings.systemVelocity = {0,0,0};
-            Vect3 sysVel = randomSign()*0.1*globularVel(clustersettings.position,1e33);
+            Vect3 sysVel = randomSign()*0.3*globularVel(clustersettings.position,1e33);
 
             // clustersettings.position = 2.5 * randomSph(settings.user.plotSize);
             clustersettings.systemVelocity = sysVel;
@@ -1530,8 +1319,7 @@ public:
 
 
 //Enable user control of camera view (zoom and rotate)
-void UpdateOrbitCamera(Camera3D& camera, float& yaw, float& pitch, float& distance)
-{
+void UpdateOrbitCamera(Camera3D& camera, float& yaw, float& pitch, float& distance) {
     Vector2 mouseDelta = GetMouseDelta();
 
     if (IsMouseButtonDown(MOUSE_BUTTON_LEFT))
@@ -1586,6 +1374,11 @@ void UpdateOrbitCamera(Camera3D& camera, float& yaw, float& pitch, float& distan
     if (IsKeyDown(KEY_LEFT)) {
         camera.target.x -= right.x * moveSpeed;
         camera.target.z -= right.z * moveSpeed;
+    }
+
+    if (IsKeyPressed(KEY_O)) {
+        camera.target.x = 0.0f;
+        camera.target.z = 0.0f;
     }
 
     // Convert yaw, pitch and distance into a 3D camera position.
@@ -2124,55 +1917,6 @@ void OpenSetupGUI(AllSettings& settings) {
     CloseWindow();
 }
 
-
-void buildSolarSystem(AllSettings &settings, InitialisationQueue &queue) {
-
-    settings.user.plotSize = 5e12;
-    settings.user.colourScheme = ColourOptions::None;
-    settings.user.enableCentralMass = false;
-    //Sun
-    OneParticleSettings sun;
-    sun.mass = M0;
-    sun.position = Vect3{0,0,0};
-    sun.velocity = Vect3{0,0,0};
-    sun.particleColour = YELLOW;
-    queue.addParticle(sun);
-    //Earth
-    OneParticleSettings earth;
-    earth.mass = 5.972e24;
-    earth.position = Vect3{1.496e11, 0, 0};
-    earth.velocity = Vect3{0, 0, 29.78e3};
-    earth.autoOrbit = true;
-    // earth.orbitBody = sun;
-    earth.axis = Vect3{0,1,0};
-    earth.eccentricity = 0;
-    earth.particleColour = SKYBLUE;
-    queue.addParticle(earth);
-
-}
-
-void buildMilkyWay(AllSettings &settings, InitialisationQueue &queue) {
-
-    settings.user.plotSize = 5e20;
-    
-    ClusterSettings mway;
-    mway.centralMassEnabled = true;
-    mway.centralMass = 6.0e10 * M0;
-    // mway.centralMass = 5.0e5 * M0;
-    mway.clusterGeneratedMass = 5.0e3 * M0;
-    mway.axis = {0,1,0};
-    mway.flattening = 0.02;
-    mway.particleCount = settings.user.particleN;
-    mway.IMF = MassDistribution::KroupaIMF;
-    mway.rescaleMasses = true;
-    mway.position = {0, 0, 0};
-    mway.systemVelocity = {0, 0, 0};
-
-    mway.size = 4.7e20;
-
-    queue.addCluster(mway);
-
-}
 
 
 int main() {
