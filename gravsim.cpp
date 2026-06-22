@@ -1,4 +1,4 @@
-//Compile Portable -- g++ -O3 gravsim.cpp presets.cpp particle.cpp -o gravsim.exe -I include -L lib -lraylib -lgdi32 -lwinmm -static-libgcc -static-libstdc++ -static
+//Compile Portable -- g++ -O3 gravsim.cpp presets.cpp particle.cpp generation.cpp cluster.cpp -o gravsim.exe -I include -L lib -lraylib -lgdi32 -lwinmm -static-libgcc -static-libstdc++ -static
 
 //Includes
 #include <iostream>
@@ -18,46 +18,24 @@
 
 //Links
 #include "core.h"
+#include "generation.h"
 #include "presets.h"
 #include "particle.h"
+#include "cluster.h"
+
 
 
 //Utility Functions/Maths
 //Initialise random generator
 // std::mt19937 gen(3);
-std::random_device rd;
-std::mt19937 gen(rd());
 
-//Generate a random double between min, max
-double randomDouble(double min, double max) {
-    std::uniform_real_distribution<double> dist(min, max);
-    return dist(gen);
-}
-
-//Generate a random integer between min, max
-int randomInteger(int min, int max) {
-    std::uniform_int_distribution<int> dist(min, max);
-    return dist(gen);
-}
-
-int randomSign() {
-    std::uniform_int_distribution<int> dist(-1, 1);
-    int sign = 0;
-    while (sign == 0) {
-        sign = dist(gen);
-    }
-    return sign;
-}
 
 Color randomColour(const std::vector<Color>&colourList) {
     int colouri = randomInteger(0,colourList.size()-1);
     return colourList[colouri];
 }
 
-double clampDouble(double value, double low, double high)
-{
-    return std::max(low, std::min(value, high));
-}
+
 
 //Convert a 3 value vector to Raylib's Vector3
 Vector3 ToVector3(const std::vector<double>& values)
@@ -69,89 +47,8 @@ Vector3 ToVector3(const std::vector<double>& values)
     };
 }
 
-//Compute the magnitude of a 3D vector
-double pythagoras(double x, double y, double z) {
-    double r = sqrt(x*x+y*y+z*z);
-    return r;
-}
 
-//Overloaded for any vector length
-double pythagoras(std::vector<double> vector) {
-    double sumsq = 0;
-    for (size_t i = 0; i < vector.size(); i++) {
-        sumsq += vector[i]*vector[i];
-    }
-    return sqrt(sumsq);
-}
 
-//Kroupa 2002 IMF 
-double initial_mass_function(double m) {
-    if (m < 0.08) {
-        return 0.0;
-    }
-    else if (m < 0.5) {
-        return std::pow(m, -1.3);
-    }
-    else if (0.5 < m && m < 1) {
-        return std::pow(m, -2.3);
-    }
-    else {
-        return std::pow(m, -2.7);
-    }
-}
-
-//Generate N masses according to IMF
-std::vector<double> generate_masses(int N) {
-    std::vector<double> masses(N);
-    for (size_t i = 0; i < masses.size(); i++) {
-        double mass_candidate = 0.0;
-        while (mass_candidate == 0.0) {
-            //Random Mass (M_0?)
-            double x_candidate = randomDouble(0.0,20.0);
-            //Random Probability Threshold?
-            double y_candidate = randomDouble(0.0,1.0);
-            if (y_candidate <= initial_mass_function(x_candidate)) {
-                mass_candidate = x_candidate;
-            }
-        }
-        masses[i] = M0*mass_candidate;
-    }
-    return masses;
-}
-
-//Vect3-Dependent Utilities
-
-Vect3 randomAxis() {
-    double x = randomDouble(0,1);
-    double y = randomDouble(0,1);
-    double z = randomDouble(0,1);
-    Vect3 vector{x,y,z};
-    return vector.normalise();
-}
-
-//Overloaded for Vect3
-double pythagoras(Vect3 vector) {
-    return sqrt(vector.x*vector.x+vector.y*vector.y+vector.z*vector.z);
-}
-
-// Generate position of individual particle within sphere* of maxRad
-Vect3 randomSph(double maxRad) {
-    double u = randomDouble(0.0,1.0);
-    double rho = maxRad * std::cbrt(u);
-
-    double cosTheta = randomDouble(-1.0, 1.0);
-    double sinTheta = std::sqrt(1.0 - cosTheta * cosTheta);
-    double phi = randomDouble(0.0, 2*pi);
-
-    Vect3 vector;
-    
-    vector.x = rho * sinTheta * std::cos(phi);
-    vector.y = rho * sinTheta * std::sin(phi);
-    vector.z = rho * cosTheta;
-
-    return vector;
-
-}
 
 Vect3 polarToCartesian(double r, double theta, double phi) {
     Vect3 vector;
@@ -162,111 +59,6 @@ Vect3 polarToCartesian(double r, double theta, double phi) {
 }
 
 
-Vect3 generateDisk(double maxRad, double flattening, Vect3 axis) {
-    Vect3 n = axis.normalise();
-
-    if (flattening < 0.0) flattening = 0.0;
-    if (flattening > 1.0) flattening = 1.0;
-
-    Vect3 temp;
-    temp = {0.0, 0.0, 1.0};
-    if (temp.cross(n) == Vect3{0,0,0}) {
-        temp = {1.0, 0.0, 0.0};
-    }
-
-    Vect3 e1 = temp.cross(n).normalise();
-    Vect3 e2 = n.cross(e1);
-
-    double u = randomDouble(0.0, 1.0);
-    double rho = maxRad * std::cbrt(u);
-
-    double cosTheta = randomDouble(-1.0, 1.0);
-    double sinTheta = std::sqrt(1.0 - cosTheta * cosTheta);
-    double phi = randomDouble(0.0, 2.0 * pi);
-
-    double xLocal = rho * sinTheta * std::cos(phi);
-    double yLocal = rho * sinTheta * std::sin(phi);
-
-    double zLocal = flattening * rho * cosTheta;
-
-    Vect3 vector = e1 * xLocal + e2 * yLocal + n * zLocal;
-
-    return vector;
-}
-
-
-
-//Compute the velocity of a particle at x,y,z
-Vect3 globularVel(Vect3 pos, double totalMass) {
-    double velScale;
-    double radius = pythagoras(pos);
-    double e = 1e12;
-    velScale = 2* pow((G*totalMass/(radius+e)),0.5);
-
-    double x = pos.x;
-    double y = pos.y;
-    double z = pos.z;
-
-    //Cylindrical Polar
-    double r = sqrt(x*x+z*z);
-    double phi = atan2(z,x);
-    //r velocity ~ 0
-    double dr_dt = randomDouble(-0.1,0.1);
-    //y velocity ~ 0
-    double dy_dt = randomDouble(-0.2,0.2);
-    //phi velocity - rotation
-    double omega = sqrt(G*totalMass/(radius*radius*radius));
-    double velx = dr_dt*cos(phi)-r*omega*sin(phi);
-    double vely = dy_dt;
-    double velz = dr_dt*sin(phi)+r*omega*cos(phi);
-
-    double mag = pythagoras(velx,vely,velz);
-  
-
-    Vect3 vector;
-    vector.x = velx;
-    vector.y = vely;
-    vector.z = velz;
-
-    // int sign = randomSign();
-    // vector = vector * sign;
-
-    return vector;
-
-}
-
-Vect3 diskVelocity(Vect3 pos, double orbitMass, Vect3 axis) {
-    Vect3 n = axis.normalise();
-
-    Vect3 radial = pos - n * pos.dot(n);
-
-    double r = radial.magnitude();
-
-    Vect3 tangent = n.cross(radial).normalise();
-
-    double speed = std::sqrt(G * orbitMass / r);
-
-    return tangent * speed;
-}
-
-Vect3 diskVelocity(Vect3 pos, double orbitMass, Vect3 axis, double softening) {
-    Vect3 n = axis.normalise();
-
-    Vect3 radial = pos - n * pos.dot(n);
-    double orbitalRadius = radial.magnitude();
-
-    Vect3 tangent = n.cross(radial).normalise();
-
-    double distanceFromCentre = pos.magnitude();
-
-    double softenedDistance2 = distanceFromCentre * distanceFromCentre + softening * softening;
-
-    double softenedDistance = std::sqrt(softenedDistance2);
-
-    double speed = std::sqrt(G * orbitMass * orbitalRadius * orbitalRadius / (softenedDistance2 * softenedDistance));
-
-    return tangent * speed;
-}
 
 //Assigns particle colour by distance from origin
 Color distanceColour(const Particle& particle, double plotSize) {
@@ -288,234 +80,6 @@ Color distanceColour(const Particle& particle, double plotSize) {
 
 
 //Initial Condition Generation
-class Cluster {
-private:
-    Vect3 centrepos;
-    Vect3 vel;
-    Vect3 axis;
-    double flattening;
-    int particleCount;
-    double radius;
-
-    double genMass;
-    bool rescaleMasses = false;
-
-    std::vector<Particle> particles;
-    bool centralMassExists = false;
-
-public:
-    Cluster(ClusterSettings settings) :
-        centrepos(settings.position), vel(settings.systemVelocity), axis(settings.axis), flattening(settings.flattening), particleCount(settings.particleCount), radius(settings.size), genMass(settings.clusterGeneratedMass), rescaleMasses(settings.rescaleMasses) {
-        
-        initialise_particles();
-        // assignVelocities();
-        // reframeParticles();
-    
-    }
-    //Calculate total mass within the radius of a particle
-    double enclosedMass(const Particle& particle) const {
-        Vect3 relativePos = particle.getPos();
-        double radius = relativePos.magnitude();
-
-        double mass = 0.0;
-
-        for (size_t p = 0; p < particles.size(); p++) {
-            Particle other = particles[p];
-            Vect3 otherRelativePos = other.getPos();
-            double otherRadius = otherRelativePos.magnitude();
-
-            if (otherRadius < radius) {
-                mass += other.getMass();
-            }
-        }
-
-        return mass;
-    }
-    void AddCentralMass(double mass) {
-        if (!centralMassExists) {
-            OneParticleSettings cmass;
-            cmass.mass = mass;
-            cmass.position = {0,0,0};
-            cmass.velocity = {0,0,0};
-            particles.push_back(Particle(cmass));
-            centralMassExists=true;
-        }
-    }
-    //Create all particle objects
-    void initialise_particles() {
-        std::vector<double> masses = generate_masses(particleCount);
-        if (rescaleMasses) {
-            masses = scaledMasses(masses);
-        }
-
-        for (int i = 0; i < particleCount; i++) {
-            Vect3 particlepos = generateDisk(radius, flattening, axis);
-            Vect3 particlevel{0,0,0};
-            OneParticleSettings psettings;
-            psettings.mass = masses[i];
-            psettings.velocity = particlevel;
-            psettings.position = particlepos;
-            particles.push_back(Particle(psettings));
-        }
-
-    }
-
-    std::vector<double> scaledMasses(std::vector<double> initialMasses) {
-        double totalMass = std::accumulate(initialMasses.begin(), initialMasses.end(), 0.0);
-        std::vector<double> newMasses;
-        for (size_t i = 0; i < initialMasses.size(); i++) {
-            double newMass = initialMasses[i]/totalMass*genMass;
-            newMasses.push_back(newMass);
-        }
-        return newMasses;
-
-    }
-
-    void assignVelocities() {
-        double clusterSoftening = maxSoftening();
-
-        for (int i = 0; i < particleCount; i++) {
-            double encMass = enclosedMass(particles[i]);
-            Vect3 currentPos = particles[i].getPos();
-
-            Vect3 particlevel = diskVelocity(currentPos,encMass,axis,clusterSoftening);
-
-            particles[i].setVel(particlevel);
-        }
-    }
-
-    void reframeParticles() {
-        for (size_t i = 0; i < particles.size(); i++) {
-            particles[i].setPos(particles[i].getPos()+centrepos);
-            particles[i].setVel(particles[i].getVel()+vel);
-        }
-    }
-    
-    std::vector<Particle> getParticleList() {
-        return particles;
-    }
-
-    void configureSoftening(double plotSize) {
-
-        std::vector<double> masses;
-        masses.reserve(particles.size());
-
-        for (const Particle& particle : particles) {
-            masses.push_back(particle.getMass());
-        }
-
-        std::sort(masses.begin(), masses.end());
-
-        double referenceMass = masses[masses.size() / 2];
-
-        double approximateSpacing = plotSize / std::cbrt(particles.size());
-        double baseSoftening = 0.05 * approximateSpacing;
-        // double baseSoftening = 0.1 * approximateSpacing;
-
-        double minAllowedSoftening = 0.25 * baseSoftening;
-        double maxAllowedSoftening = 5.0 * baseSoftening;
-
-        for (Particle& particle : particles) {
-            double massRatio = particle.getMass() / referenceMass;
-
-            double massScale = std::cbrt(massRatio);
-            massScale = clampDouble(massScale, 0.5, 10.0);
-
-            double particleSoftening = baseSoftening * massScale;
-
-            particleSoftening = clampDouble(
-                particleSoftening,
-                minAllowedSoftening,
-                maxAllowedSoftening
-            );
-
-            particle.setSoftening(particleSoftening);
-        }
-    }
-    double maxSoftening() const {
-        double maxSoft = 0.0;
-
-        for (const Particle& particle : particles) {
-            maxSoft = std::max(maxSoft, particle.getSoftening());
-        }
-
-        return maxSoft;
-    }
-    void setClusterColour(Color colour) {
-        for (Particle& particle : particles) {
-            particle.setColour(colour);
-        }
-    }
-    double calculateKE() const {
-        double kineticEnergy = 0.0;
-
-        for (const Particle& particle : particles) {
-            double speed = particle.getVel().magnitude();
-            kineticEnergy += 0.5 * particle.getMass() * speed * speed;
-        }
-
-        return kineticEnergy;
-    }
-    double calculatePE() const {
-        double potentialEnergy = 0.0;
-
-        for (size_t i = 0; i < particles.size(); i++) {
-            for (size_t j = i + 1; j < particles.size(); j++) {
-                Vect3 separation = particles[i].getPos() - particles[j].getPos();
-                double r = separation.magnitude();
-
-                double e1 = particles[i].getSoftening();
-                double e2 = particles[j].getSoftening();
-                double epsilonPair = std::sqrt(e1 * e1 + e2 * e2);
-
-                potentialEnergy += -G * particles[i].getMass() * particles[j].getMass() / std::sqrt(r * r + epsilonPair * epsilonPair);
-            }
-        }
-
-        return potentialEnergy;
-    }
-    void removeInternalDrift() {
-        Vect3 totalMomentum{0.0, 0.0, 0.0};
-        double totalMass = 0.0;
-
-        for (const Particle& particle : particles) {
-            totalMomentum += particle.getVel() * particle.getMass();
-            totalMass += particle.getMass();
-        }
-
-        Vect3 centreVelocity = totalMomentum / totalMass;
-
-        for (Particle& particle : particles) {
-            particle.setVel(particle.getVel() - centreVelocity);
-        }
-    }
-    void assignRandomVelocities() {
-        for (Particle& particle : particles) {
-            Vect3 velocity{randomDouble(-1.0, 1.0), randomDouble(-1.0, 1.0), randomDouble(-1.0, 1.0)};
-            particle.setVel(velocity);
-        }
-        removeInternalDrift();
-    }
-    void rescaleToVirialRatio(double target) {
-        double KE = calculateKE();
-        double PE = calculatePE();
-
-        double targetKE = 0.5 * target * std::abs(PE);
-        double velocityScale = std::sqrt(targetKE / KE);
-
-        for (Particle& particle : particles) {
-            particle.setVel(particle.getVel() * velocityScale);
-        }
-
-        removeInternalDrift();
-    }
-    void assignVirialVelocities(double target) {
-        assignRandomVelocities();
-        rescaleToVirialRatio(target);
-    }
-};
-
-
 
 //Initialise all particles in queue
 std::vector<Particle> InitialiseAll(InitialisationQueue queue) {
