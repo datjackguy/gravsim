@@ -21,22 +21,14 @@ private:
 
 public:
     Cluster(ClusterSettings settings);
-    //Calculate total mass within the radius of a particle
     double enclosedMass(const Particle& particle) const;
     void AddCentralMass(double mass);
-    //Create all particle objects
     void initialise_particles();
-
     std::vector<double> scaledMasses(std::vector<double> initialMasses);
-
     void assignVelocities();
-
     void reframeParticles();
-    
     std::vector<Particle> getParticleList();
-
     void configureSoftening(double plotSize);
-
     double maxSoftening() const;
     void setClusterColour(Color colour);
     double calculateKE() const;
