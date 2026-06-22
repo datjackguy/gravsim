@@ -509,7 +509,7 @@ struct UserSettings {
     //Values
     int particleN = 300;
     double plotSize = 2e15;
-    int maxTrailLength = 20;
+    int maxTrailLength = 200;
     // int selectedColourOption = 1;
     ColourOptions colourScheme = ColourOptions::Random;
     int selectedWindowSize = 0;
@@ -535,12 +535,12 @@ struct ClusterSettings {
     double velocityScale = 0; //-1=Slower than orbit, 0=Perfect Circular, 1=Faster Than Circular
     Vect3 systemVelocity = {0,0,0}; //Motion of cluster in simulation frame
     bool centralMassEnabled = true; //Central Mass in cluster
-    double centralMass = 1e35;
+    double centralMass = 1e34;
     MassDistribution IMF = MassDistribution::KroupaIMF; //0 = Uniform Random Masses, 1 = Kroupa 2002 IMF-like
     double lowMassBound = 1 * M0;
     double highMassBound = 100 * M0;
     int particleCount;
-    Color clusterColour = PINK;
+    Color clusterColour = WHITE;
     double clusterGeneratedMass;
     bool rescaleMasses;
 };
@@ -679,6 +679,7 @@ public:
 
         double approximateSpacing = plotSize / std::cbrt(particles.size());
         double baseSoftening = 0.05 * approximateSpacing;
+        // double baseSoftening = 0.1 * approximateSpacing;
 
         double minAllowedSoftening = 0.25 * baseSoftening;
         double maxAllowedSoftening = 5.0 * baseSoftening;
@@ -713,6 +714,73 @@ public:
         for (Particle& particle : particles) {
             particle.setColour(colour);
         }
+    }
+    double calculateKE() const {
+        double kineticEnergy = 0.0;
+
+        for (const Particle& particle : particles) {
+            double speed = particle.getVel().magnitude();
+            kineticEnergy += 0.5 * particle.getMass() * speed * speed;
+        }
+
+        return kineticEnergy;
+    }
+    double calculatePE() const {
+        double potentialEnergy = 0.0;
+
+        for (size_t i = 0; i < particles.size(); i++) {
+            for (size_t j = i + 1; j < particles.size(); j++) {
+                Vect3 separation = particles[i].getPos() - particles[j].getPos();
+                double r = separation.magnitude();
+
+                double e1 = particles[i].getSoftening();
+                double e2 = particles[j].getSoftening();
+                double epsilonPair = std::sqrt(e1 * e1 + e2 * e2);
+
+                potentialEnergy += -G * particles[i].getMass() * particles[j].getMass() / std::sqrt(r * r + epsilonPair * epsilonPair);
+            }
+        }
+
+        return potentialEnergy;
+    }
+    void removeInternalDrift() {
+        Vect3 totalMomentum{0.0, 0.0, 0.0};
+        double totalMass = 0.0;
+
+        for (const Particle& particle : particles) {
+            totalMomentum += particle.getVel() * particle.getMass();
+            totalMass += particle.getMass();
+        }
+
+        Vect3 centreVelocity = totalMomentum / totalMass;
+
+        for (Particle& particle : particles) {
+            particle.setVel(particle.getVel() - centreVelocity);
+        }
+    }
+    void assignRandomVelocities() {
+        for (Particle& particle : particles) {
+            Vect3 velocity{randomDouble(-1.0, 1.0), randomDouble(-1.0, 1.0), randomDouble(-1.0, 1.0)};
+            particle.setVel(velocity);
+        }
+        removeInternalDrift();
+    }
+    void rescaleToVirialRatio(double target) {
+        double KE = calculateKE();
+        double PE = calculatePE();
+
+        double targetKE = 0.5 * target * std::abs(PE);
+        double velocityScale = std::sqrt(targetKE / KE);
+
+        for (Particle& particle : particles) {
+            particle.setVel(particle.getVel() * velocityScale);
+        }
+
+        removeInternalDrift();
+    }
+    void assignVirialVelocities(double target) {
+        assignRandomVelocities();
+        rescaleToVirialRatio(target);
     }
 };
 
@@ -761,12 +829,18 @@ std::vector<Particle> InitialiseAll(InitialisationQueue queue) {
         if (c.centralMassEnabled) {
             cluster.AddCentralMass(c.centralMass);
         }
-                    
+        cluster.setClusterColour(c.clusterColour);
         
         cluster.configureSoftening(c.size);
-        cluster.assignVelocities();
-        cluster.reframeParticles();
 
+        if (c.centralMassEnabled) {
+            cluster.assignVelocities();
+        }
+        else {
+            cluster.assignVirialVelocities(0.3);
+        }
+
+        cluster.reframeParticles();
         std::vector<Particle> clusterParticles = cluster.getParticleList();
         allParticles.insert(allParticles.end(),clusterParticles.begin(),clusterParticles.end());
 
@@ -817,6 +891,9 @@ void autoClusters(const AllSettings &settings, InitialisationQueue &queue) {
         clustersettings.particleCount = settings.user.particleN;
         clustersettings.size = settings.user.plotSize/2;
         clustersettings.flattening = 0.5;
+        clustersettings.rescaleMasses = false;
+        clustersettings.centralMassEnabled = settings.user.enableCentralMass;
+        clustersettings.centralMass = 1e34;
 
         queue.addCluster(clustersettings);
     }
@@ -824,12 +901,26 @@ void autoClusters(const AllSettings &settings, InitialisationQueue &queue) {
         std::vector<int> split = GenerateClusterSizes(settings.init.clusterCount,settings.user.particleN);
         for (int c = 0; c < settings.init.clusterCount; c++) {
             ClusterSettings clustersettings;
-            clustersettings.position = 2*randomSph(settings.user.plotSize);
+            clustersettings.position = 1.5*randomSph(settings.user.plotSize);
             clustersettings.systemVelocity = {0,0,0};
+            Vect3 sysVel = randomSign()*0.1*globularVel(clustersettings.position,1e33);
+
+            // clustersettings.position = 2.5 * randomSph(settings.user.plotSize);
+            clustersettings.systemVelocity = sysVel;
             clustersettings.axis = randomAxis();
             clustersettings.flattening = randomDouble(0,1);
-            clustersettings.size = settings.user.plotSize/4;
+            if (settings.user.enableCentralMass) {
+                clustersettings.size = settings.user.plotSize/4;
+            }
+            else {
+                clustersettings.size = settings.user.plotSize/10;
+                clustersettings.flattening = 1;
+            }
+            // clustersettings.size = settings.user.plotSize/10;
             clustersettings.particleCount = split[c];
+            clustersettings.rescaleMasses = false;
+            clustersettings.centralMassEnabled = settings.user.enableCentralMass;
+            clustersettings.centralMass = 1e33;
 
             if (settings.user.colourScheme == ColourOptions::Cluster) {
                 clustersettings.clusterColour=colourList[c%colourList.size()];
@@ -864,6 +955,16 @@ private:
     double averageUpdateMs = 0.0;
     bool updateTimingExists = false;
 
+    //Energy and Diagnostics
+    double initialKE = 0;
+    double initialPE = 0;
+    double initialTotalEnergy = 0;
+    std::deque<double> KEhistory;
+    std::deque<double> PEhistory;
+    std::deque<double> energyHistory;
+    const int maxHistory = 300;
+
+
 public:
     Simulation(const AllSettings& settings, std::vector<Particle>& particles)
         : settings(settings), particles(particles) {
@@ -874,6 +975,10 @@ public:
 
         // configureSoftening();
         configureTimestep();
+
+        initialKE = calculateKE();
+        initialPE = calculatePE();
+        initialTotalEnergy = initialKE + initialPE;
         // create_particle_pairs();
         colour_options();
 
@@ -902,7 +1007,8 @@ private:
 
         double approximateSpacing = settings.user.plotSize / std::cbrt(particles.size());
 
-        double baseSoftening = 0.05 * approximateSpacing;
+        // double baseSoftening = 0.05 * approximateSpacing;
+        double baseSoftening = 0.3 * approximateSpacing;
 
         double referenceMass = medianMass();
 
@@ -928,7 +1034,8 @@ private:
 
         double dynamicalTime = std::sqrt((systemRadius * systemRadius * systemRadius) / (G * totalMass));
 
-        timestep = dynamicalTime / 300.0;
+        timestep = dynamicalTime / 3000.0;
+        // timestep = dynamicalTime / 500.0;
     }
     //Colour options
     void colour_options() {
@@ -1008,7 +1115,7 @@ private:
         }
         return mass;
     }
-    double distanceCalc(const Particle &p1, const Particle &p2) {
+    double distanceCalc(const Particle &p1, const Particle &p2) const {
         Vect3 pos1 = p1.getPos();
         Vect3 pos2 = p2.getPos();
 
@@ -1052,6 +1159,44 @@ private:
     }
 
 public:
+    double calculateKE() {
+        double KineticEnergy = 0;
+        for (const Particle &particle : particles) {
+            double vel = particle.getVel().magnitude();
+            double KE = 0.5 * particle.getMass() * vel * vel;
+            KineticEnergy += KE;
+        }
+        KEhistory.push_back(KineticEnergy);
+        return KineticEnergy;
+    }
+    double calculatePE() {
+        double PotentialEnergy = 0;
+        for (size_t i = 0; i < particles.size(); i++) {
+            for (size_t j = i+1; j < particles.size(); j++) {
+                double separation = distanceCalc(particles[i],particles[j]);
+                double soft1 = particles[i].getSoftening();
+                double soft2 = particles[j].getSoftening();
+                double pairsoft = std::sqrt(soft1*soft1+soft2*soft2);
+
+                PotentialEnergy += -G * particles[i].getMass() * particles[j].getMass() / std::sqrt(separation*separation + pairsoft * pairsoft);
+            }
+        }
+        PEhistory.push_back(PotentialEnergy);
+
+        return PotentialEnergy;
+    }
+    void updateEnergyHistory(double PE, double KE) {
+        energyHistory.push_back(PE+KE);
+        if (energyHistory.size() > maxHistory) {
+            energyHistory.pop_front();
+        }
+        if (PEhistory.size() > maxHistory) {
+            PEhistory.pop_front();
+        }
+        if (KEhistory.size() > maxHistory) {
+            KEhistory.pop_front();
+        }
+    }
     //Update the simulation for each timestep
     void update() {
 
@@ -1090,7 +1235,26 @@ public:
         else {
             averageUpdateMs = 0.95 * averageUpdateMs + 0.05 * lastUpdateMs;
         }
+    }
 
+    const std::deque<double> &getKEhistory() const {
+        return KEhistory;
+    }
+    const std::deque<double> &getPEhistory() const {
+        return PEhistory;
+    }
+    const std::deque<double> &getEnergyhistory() const {
+        return energyHistory;
+    }
+
+    const double &getInitalKE() const {
+        return initialKE;
+    }
+    const double &getInitalPE() const {
+        return initialPE;
+    }
+    const double &getInitialEnergy() const {
+        return initialTotalEnergy;
     }
 
     const std::vector<Particle>& getParticles() const {
@@ -1352,7 +1516,8 @@ double UpdateSimSpeed(double targetFramesPerSecond) {
     if (IsKeyPressed(KEY_EQUAL) || (IsKeyPressedRepeat(KEY_EQUAL) && IsKeyDown(KEY_EQUAL))) {
         targetFramesPerSecond += 10;
     };
-    if (IsKeyPressed(KEY_MINUS) || (IsKeyPressedRepeat(KEY_MINUS) && IsKeyDown(KEY_MINUS)) && targetFramesPerSecond > 0) {
+    // if (IsKeyPressed(KEY_MINUS) || (IsKeyPressedRepeat(KEY_MINUS) && IsKeyDown(KEY_MINUS)) && targetFramesPerSecond > 0) {
+    if (IsKeyPressed(KEY_MINUS) && targetFramesPerSecond > 0) {
         targetFramesPerSecond -= 10;
     }
     return targetFramesPerSecond;
@@ -1548,6 +1713,105 @@ void DrawPerformanceOverlay(double lastUpdateMs, double averageUpdateMs) {
     DrawText(TextFormat("Max Updates/s: %.1f", 1000/averageUpdateMs), GetScreenWidth() - 295, 72, 20, RAYWHITE);
 }
 
+void DrawRollingGraph(const std::deque<double>& history, Rectangle bounds, const char* label, Color lineColour) {
+    DrawRectangleRec(bounds, Fade(BLACK, 0.45f));
+    DrawRectangleLinesEx(bounds, 1.0f, Fade(RAYWHITE, 0.35f));
+
+    DrawText(label, bounds.x + 6, bounds.y + 5, 14, RAYWHITE);
+
+    if (history.size() < 2) {
+        DrawText("Waiting for data...", bounds.x + 6, bounds.y + 28, 12, GRAY);
+        return;
+    }
+
+    double minValue = history[0];
+    double maxValue = history[0];
+
+    for (double value : history) {
+        minValue = std::min(minValue, value);
+        maxValue = std::max(maxValue, value);
+    }
+
+    double range = maxValue - minValue;
+
+    if (range == 0.0) {
+        range = std::abs(maxValue);
+    }
+
+    if (range == 0.0) {
+        range = 1.0;
+    }
+
+    float graphLeft = bounds.x + 8;
+    float graphRight = bounds.x + bounds.width - 8;
+    float graphTop = bounds.y + 24;
+    float graphBottom = bounds.y + bounds.height - 18;
+
+    for (size_t i = 1; i < history.size(); i++) {
+        float t0 = static_cast<float>(i - 1) / static_cast<float>(history.size() - 1);
+        float t1 = static_cast<float>(i) / static_cast<float>(history.size() - 1);
+
+        float x0 = graphLeft + t0 * (graphRight - graphLeft);
+        float x1 = graphLeft + t1 * (graphRight - graphLeft);
+
+        float y0 = graphBottom - static_cast<float>((history[i - 1] - minValue) / range) * (graphBottom - graphTop);
+        float y1 = graphBottom - static_cast<float>((history[i] - minValue) / range) * (graphBottom - graphTop);
+
+        DrawLineEx(Vector2{x0, y0}, Vector2{x1, y1}, 2.0f, lineColour);
+    }
+
+    DrawText(TextFormat("min %.2e", minValue), bounds.x + 6, bounds.y + bounds.height - 15, 10, GRAY);
+    DrawText(TextFormat("max %.2e", maxValue), bounds.x + bounds.width - 95, bounds.y + bounds.height - 15, 10, GRAY);
+}
+
+void DrawDiagnosticsOverlay(
+    double initialKE,
+    double currentKE,
+    double initialPE,
+    double currentPE,
+    double initialEnergy,
+    double currentEnergy,
+    const std::deque<double>& KEhistory,
+    const std::deque<double>& PEhistory,
+    const std::deque<double>& energyHistory
+) {
+    float panelWidth = 360.0f;
+    float panelHeight = 520.0f;
+
+    float x = GetScreenWidth() - panelWidth - 20.0f;
+    float y = (GetScreenHeight() - panelHeight) / 2.0f;
+
+    DrawRectangle(static_cast<int>(x), static_cast<int>(y), static_cast<int>(panelWidth), static_cast<int>(panelHeight), Fade(BLACK, 0.65f));
+
+    DrawRectangleLinesEx(Rectangle{x, y, panelWidth, panelHeight}, 1.0f, Fade(RAYWHITE, 0.5f));
+
+    DrawText("Energy Diagnostics", x + 12, y + 10, 20, RAYWHITE);
+
+    double energyErrorPercent = 0.0;
+
+    if (initialEnergy != 0.0) {
+        energyErrorPercent = 100.0 * (currentEnergy - initialEnergy) / std::abs(initialEnergy);
+    }
+
+    DrawText(TextFormat("KE start: %.3e J", initialKE), x + 12, y + 42, 14, RAYWHITE);
+    DrawText(TextFormat("KE now:   %.3e J", currentKE), x + 12, y + 60, 14, RAYWHITE);
+
+    DrawText(TextFormat("PE start: %.3e J", initialPE), x + 12, y + 84, 14, RAYWHITE);
+    DrawText(TextFormat("PE now:   %.3e J", currentPE), x + 12, y + 102, 14, RAYWHITE);
+
+    DrawText(TextFormat("E start:  %.3e J", initialEnergy), x + 12, y + 126, 14, RAYWHITE);
+    DrawText(TextFormat("E now:    %.3e J", currentEnergy), x + 12, y + 144, 14, RAYWHITE);
+    DrawText(TextFormat("Error:    %.6f %%", energyErrorPercent), x + 12, y + 166, 16, RAYWHITE);
+
+    float graphX = x + 12;
+    float graphW = panelWidth - 24;
+    float graphH = 90;
+
+    DrawRollingGraph(KEhistory, Rectangle{graphX, y + 200, graphW, graphH}, "Kinetic Energy", SKYBLUE);
+    DrawRollingGraph(PEhistory, Rectangle{graphX, y + 300, graphW, graphH}, "Potential Energy", ORANGE);
+    DrawRollingGraph(energyHistory, Rectangle{graphX, y + 400, graphW, graphH}, "Total Energy", LIME);
+}
+
 
 //Setup GUI
 void OpenSetupGUI(AllSettings& settings) {
@@ -1568,7 +1832,7 @@ void OpenSetupGUI(AllSettings& settings) {
     presetChoice.addOption({"Milky Way", 2, "Milky Way Model(ish)"});
 
     IntSlider nSlider(settings.user.particleN, "20", "1000", 20, 1000, "Total Particles");
-    IntSlider trailSlider(settings.user.maxTrailLength, "1", "100", 0.0f, 100.0f, "Trail Length");
+    IntSlider trailSlider(settings.user.maxTrailLength, "1", "1000", 0.0f, 1000.0f, "Trail Length");
     Tickbox centralMassTick(settings.user.enableCentralMass, "Central Mass");
     LogSlider plotsizeSlider(settings.user.plotSize, "2e10", "2e20", 2e10, 2e20, "Plot Size (m)");
     Tickbox drawTrailsTick(settings.user.drawTrails, "Enable Trails");
@@ -1684,8 +1948,9 @@ void buildMilkyWay(AllSettings &settings, InitialisationQueue &queue) {
     
     ClusterSettings mway;
     mway.centralMassEnabled = true;
-    mway.centralMass = 1.0e10 * M0;
-    mway.clusterGeneratedMass = 5.0e10 * M0;
+    mway.centralMass = 6.0e10 * M0;
+    // mway.centralMass = 5.0e5 * M0;
+    mway.clusterGeneratedMass = 5.0e3 * M0;
     mway.axis = {0,1,0};
     mway.flattening = 0.02;
     mway.particleCount = settings.user.particleN;
@@ -1772,11 +2037,26 @@ int main() {
 
     double accumulator = 0.0;
 
+    double energyTimer = 0;
+    double initialKE = sim.getInitalKE();
+    double initialPE = sim.getInitalPE();
+    double initialEnergy = sim.getInitialEnergy();
+
+    std::deque<double> KEhistory = sim.getKEhistory();
+    std::deque<double> PEhistory = sim.getPEhistory();
+    sim.updateEnergyHistory(initialPE, initialKE);
+    std::deque<double> EnergyHistory = sim.getEnergyhistory();
+
+    double currentKE = initialKE;
+    double currentPE = initialPE;
+    double currentTotalEnergy = currentKE + currentPE;
+
     while (!WindowShouldClose()) {
         double frameSeconds = GetFrameTime();
         frameSeconds = std::min(frameSeconds,maxFrameSeconds);
 
         accumulator += frameSeconds;
+        energyTimer += frameSeconds;
 
         int updatesThisFrame = 0;
 
@@ -1793,6 +2073,15 @@ int main() {
 
         if (updatesThisFrame == maxUpdatesPerFrame) {
             accumulator = 0.0;
+        }
+
+        if (energyTimer >= 2) {
+            currentKE = sim.calculateKE();
+            currentPE = sim.calculatePE();
+            sim.updateEnergyHistory(currentPE,currentKE);
+            currentTotalEnergy = currentKE + currentPE;
+
+            energyTimer = 0;
         }
 
         UpdateOrbitCamera(camera, cameraYaw, cameraPitch, cameraDistance);
@@ -1855,6 +2144,18 @@ int main() {
             DrawGridUnitOverlay(settings.user.plotSize);
             DrawPerformanceOverlay(sim.getLastUpdateMs(), sim.getAverageUpdateMs());
             DrawControlsOverlay();
+
+            DrawDiagnosticsOverlay(
+                initialKE,
+                currentKE,
+                initialPE,
+                currentPE,
+                initialEnergy,
+                currentTotalEnergy,
+                sim.getKEhistory(),
+                sim.getPEhistory(),
+                sim.getEnergyhistory()
+            );
         }
 
         EndDrawing();
