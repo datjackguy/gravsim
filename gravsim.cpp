@@ -955,16 +955,6 @@ private:
     double averageUpdateMs = 0.0;
     bool updateTimingExists = false;
 
-    //Energy and Diagnostics
-    double initialKE = 0;
-    double initialPE = 0;
-    double initialTotalEnergy = 0;
-    std::deque<double> KEhistory;
-    std::deque<double> PEhistory;
-    std::deque<double> energyHistory;
-    const int maxHistory = 300;
-
-
 public:
     Simulation(const AllSettings& settings, std::vector<Particle>& particles)
         : settings(settings), particles(particles) {
@@ -976,9 +966,6 @@ public:
         // configureSoftening();
         configureTimestep();
 
-        initialKE = calculateKE();
-        initialPE = calculatePE();
-        initialTotalEnergy = initialKE + initialPE;
         // create_particle_pairs();
         colour_options();
 
@@ -1159,44 +1146,6 @@ private:
     }
 
 public:
-    double calculateKE() {
-        double KineticEnergy = 0;
-        for (const Particle &particle : particles) {
-            double vel = particle.getVel().magnitude();
-            double KE = 0.5 * particle.getMass() * vel * vel;
-            KineticEnergy += KE;
-        }
-        KEhistory.push_back(KineticEnergy);
-        return KineticEnergy;
-    }
-    double calculatePE() {
-        double PotentialEnergy = 0;
-        for (size_t i = 0; i < particles.size(); i++) {
-            for (size_t j = i+1; j < particles.size(); j++) {
-                double separation = distanceCalc(particles[i],particles[j]);
-                double soft1 = particles[i].getSoftening();
-                double soft2 = particles[j].getSoftening();
-                double pairsoft = std::sqrt(soft1*soft1+soft2*soft2);
-
-                PotentialEnergy += -G * particles[i].getMass() * particles[j].getMass() / std::sqrt(separation*separation + pairsoft * pairsoft);
-            }
-        }
-        PEhistory.push_back(PotentialEnergy);
-
-        return PotentialEnergy;
-    }
-    void updateEnergyHistory(double PE, double KE) {
-        energyHistory.push_back(PE+KE);
-        if (energyHistory.size() > maxHistory) {
-            energyHistory.pop_front();
-        }
-        if (PEhistory.size() > maxHistory) {
-            PEhistory.pop_front();
-        }
-        if (KEhistory.size() > maxHistory) {
-            KEhistory.pop_front();
-        }
-    }
     //Update the simulation for each timestep
     void update() {
 
@@ -1237,26 +1186,6 @@ public:
         }
     }
 
-    const std::deque<double> &getKEhistory() const {
-        return KEhistory;
-    }
-    const std::deque<double> &getPEhistory() const {
-        return PEhistory;
-    }
-    const std::deque<double> &getEnergyhistory() const {
-        return energyHistory;
-    }
-
-    const double &getInitalKE() const {
-        return initialKE;
-    }
-    const double &getInitalPE() const {
-        return initialPE;
-    }
-    const double &getInitialEnergy() const {
-        return initialTotalEnergy;
-    }
-
     const std::vector<Particle>& getParticles() const {
         return particles;
     }
@@ -1294,6 +1223,143 @@ public:
     }
     double getTimestepYears() const {
         return timestep / secondsPerYear;
+    }
+};
+
+class PhysicsDiagnostics {
+private:
+    const std::vector<Particle>& particles;
+
+    double initialKE = 0.0;
+    double initialPE = 0.0;
+    double initialTotalEnergy = 0.0;
+
+    double currentKE = 0.0;
+    double currentPE = 0.0;
+    double currentTotalEnergy = 0.0;
+
+    std::deque<double> KEhistory;
+    std::deque<double> PEhistory;
+    std::deque<double> energyHistory;
+
+    int maxHistory = 300;
+
+public:
+    PhysicsDiagnostics(const std::vector<Particle>& particles, int maxHistory = 300)
+        : particles(particles), maxHistory(maxHistory) {
+        initialise();
+    }
+
+    void initialise() {
+        initialKE = calculateKE();
+        initialPE = calculatePE();
+        initialTotalEnergy = initialKE + initialPE;
+
+        currentKE = initialKE;
+        currentPE = initialPE;
+        currentTotalEnergy = initialTotalEnergy;
+
+        recordCurrentValues();
+    }
+
+    double calculateKE() const {
+        double kineticEnergy = 0.0;
+
+        for (const Particle& particle : particles) {
+            double speed = particle.getVel().magnitude();
+            kineticEnergy += 0.5 * particle.getMass() * speed * speed;
+        }
+
+        return kineticEnergy;
+    }
+
+    double calculatePE() const {
+        double potentialEnergy = 0.0;
+
+        for (size_t i = 0; i < particles.size(); i++) {
+            for (size_t j = i + 1; j < particles.size(); j++) {
+                Vect3 separation = particles[i].getPos() - particles[j].getPos();
+                double r = separation.magnitude();
+
+                double soft1 = particles[i].getSoftening();
+                double soft2 = particles[j].getSoftening();
+                double pairSoftening = std::sqrt(soft1 * soft1 + soft2 * soft2);
+
+                potentialEnergy += -G * particles[i].getMass() * particles[j].getMass() / std::sqrt(r * r + pairSoftening * pairSoftening);
+            }
+        }
+
+        return potentialEnergy;
+    }
+
+    void sample() {
+        currentKE = calculateKE();
+        currentPE = calculatePE();
+        currentTotalEnergy = currentKE + currentPE;
+
+        recordCurrentValues();
+    }
+
+private:
+    void recordCurrentValues() {
+        KEhistory.push_back(currentKE);
+        PEhistory.push_back(currentPE);
+        energyHistory.push_back(currentTotalEnergy);
+
+        trimHistory(KEhistory);
+        trimHistory(PEhistory);
+        trimHistory(energyHistory);
+    }
+
+    void trimHistory(std::deque<double>& history) {
+        while (history.size() > maxHistory) {
+            history.pop_front();
+        }
+    }
+
+public:
+    double getInitialKE() const {
+        return initialKE;
+    }
+
+    double getInitialPE() const {
+        return initialPE;
+    }
+
+    double getInitialEnergy() const {
+        return initialTotalEnergy;
+    }
+
+    double getCurrentKE() const {
+        return currentKE;
+    }
+
+    double getCurrentPE() const {
+        return currentPE;
+    }
+
+    double getCurrentEnergy() const {
+        return currentTotalEnergy;
+    }
+
+    const std::deque<double>& getKEhistory() const {
+        return KEhistory;
+    }
+
+    const std::deque<double>& getPEhistory() const {
+        return PEhistory;
+    }
+
+    const std::deque<double>& getEnergyHistory() const {
+        return energyHistory;
+    }
+
+    double getEnergyErrorPercent() const {
+        if (initialTotalEnergy == 0.0) {
+            return 0.0;
+        }
+
+        return 100.0 * (currentTotalEnergy - initialTotalEnergy) / std::abs(initialTotalEnergy);
     }
 };
 
@@ -1410,6 +1476,16 @@ bool checkHideInfo(bool hideInfo) {
     }
     else {
         return hideInfo;
+    }
+}
+
+//Toggle Diagnostics
+bool checkHideDiagnostics(bool hide) {
+    if (IsKeyPressed(KEY_F5)) {
+        return !hide;
+    }
+    else {
+        return hide;
     }
 }
 
@@ -1677,17 +1753,19 @@ void DrawGridUnitOverlay(double plotSize) {
 }
 
 void DrawControlsOverlay() {
-    DrawRectangle(GetScreenWidth() - 310, GetScreenHeight()-150, 500, 145, Fade(BLACK, 0.6f));
+    DrawRectangle(GetScreenWidth() - 310, GetScreenHeight()-180, 500, 175, Fade(BLACK, 0.6f));
 
-    DrawText("Click+Drag: Rotate View",GetScreenWidth() - 295,GetScreenHeight()-145,20,RAYWHITE);
+    DrawText("Click+Drag: Rotate View",GetScreenWidth() - 295,GetScreenHeight()-175,20,RAYWHITE);
 
-    DrawText("Scroll: Zoom",GetScreenWidth() - 295,GetScreenHeight()-120,20,RAYWHITE);
+    DrawText("Scroll: Zoom",GetScreenWidth() - 295,GetScreenHeight()-150,20,RAYWHITE);
 
-    DrawText("Arrows: Move Camera",GetScreenWidth() - 295,GetScreenHeight()-95,20,RAYWHITE);
+    DrawText("Arrows: Move Camera",GetScreenWidth() - 295,GetScreenHeight()-125,20,RAYWHITE);
 
-    DrawText("F3: Toggle Info",GetScreenWidth() - 295,GetScreenHeight()-70,20,RAYWHITE);
+    DrawText("F3: Toggle Info",GetScreenWidth() - 295,GetScreenHeight()-100,20,RAYWHITE);
 
-    DrawText("+/-: Speed",GetScreenWidth() - 295,GetScreenHeight()-45,20,RAYWHITE);
+    DrawText("F5: Toggle Diagnostics",GetScreenWidth() - 295,GetScreenHeight()-75,20,RAYWHITE);
+
+    DrawText("+/-: Speed",GetScreenWidth() - 295,GetScreenHeight()-50,20,RAYWHITE);
 }
 
 
@@ -1785,7 +1863,7 @@ void DrawDiagnosticsOverlay(
 
     DrawRectangleLinesEx(Rectangle{x, y, panelWidth, panelHeight}, 1.0f, Fade(RAYWHITE, 0.5f));
 
-    DrawText("Energy Diagnostics", x + 12, y + 10, 20, RAYWHITE);
+    DrawText("Physics Diagnostics", x + 12, y + 10, 20, RAYWHITE);
 
     double energyErrorPercent = 0.0;
 
@@ -1987,8 +2065,10 @@ int main() {
     
 
     std::vector<Particle> particles = InitialiseAll(initqueue);
-    //Start Simulation
+    //Create Simulation
     Simulation sim(settings,particles);
+    //Add diagnostics
+    PhysicsDiagnostics diagnostics(sim.getParticles());
 
     TrailManager trailManager(sim.getParticles().size(), settings.user.maxTrailLength, settings.user.plotSize);
 
@@ -1997,6 +2077,7 @@ int main() {
 
 
     bool hideInfo = false;
+    bool hideDiagnostics = true;
 
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
@@ -2038,18 +2119,6 @@ int main() {
     double accumulator = 0.0;
 
     double energyTimer = 0;
-    double initialKE = sim.getInitalKE();
-    double initialPE = sim.getInitalPE();
-    double initialEnergy = sim.getInitialEnergy();
-
-    std::deque<double> KEhistory = sim.getKEhistory();
-    std::deque<double> PEhistory = sim.getPEhistory();
-    sim.updateEnergyHistory(initialPE, initialKE);
-    std::deque<double> EnergyHistory = sim.getEnergyhistory();
-
-    double currentKE = initialKE;
-    double currentPE = initialPE;
-    double currentTotalEnergy = currentKE + currentPE;
 
     while (!WindowShouldClose()) {
         double frameSeconds = GetFrameTime();
@@ -2075,18 +2144,15 @@ int main() {
             accumulator = 0.0;
         }
 
-        if (energyTimer >= 2) {
-            currentKE = sim.calculateKE();
-            currentPE = sim.calculatePE();
-            sim.updateEnergyHistory(currentPE,currentKE);
-            currentTotalEnergy = currentKE + currentPE;
-
-            energyTimer = 0;
+        if (energyTimer >= 2.0) {
+            diagnostics.sample();
+            energyTimer = 0.0;
         }
 
         UpdateOrbitCamera(camera, cameraYaw, cameraPitch, cameraDistance);
 
         hideInfo = checkHideInfo(hideInfo);
+        hideDiagnostics = checkHideDiagnostics(hideDiagnostics);
 
         targetUpdatesPerSecond = UpdateSimSpeed(targetUpdatesPerSecond);
         secondsPerUpdate = 1.0 / targetUpdatesPerSecond;
@@ -2145,16 +2211,19 @@ int main() {
             DrawPerformanceOverlay(sim.getLastUpdateMs(), sim.getAverageUpdateMs());
             DrawControlsOverlay();
 
+
+        }
+        if (!hideDiagnostics) {
             DrawDiagnosticsOverlay(
-                initialKE,
-                currentKE,
-                initialPE,
-                currentPE,
-                initialEnergy,
-                currentTotalEnergy,
-                sim.getKEhistory(),
-                sim.getPEhistory(),
-                sim.getEnergyhistory()
+                diagnostics.getInitialKE(),
+                diagnostics.getCurrentKE(),
+                diagnostics.getInitialPE(),
+                diagnostics.getCurrentPE(),
+                diagnostics.getInitialEnergy(),
+                diagnostics.getCurrentEnergy(),
+                diagnostics.getKEhistory(),
+                diagnostics.getPEhistory(),
+                diagnostics.getEnergyHistory()
             );
         }
 
