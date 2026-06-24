@@ -19,6 +19,7 @@ Vect3 randomAxis();
 
 Vect3 randomSph(double maxRad);
 Vect3 generateDisk(double maxRad, double flattening, Vect3 axis);
+Vect3 generateDisk(double minRad, double maxRad, double flattening, Vect3 axis);
 
 
 Vect3 globularVel(Vect3 pos, double totalMass);

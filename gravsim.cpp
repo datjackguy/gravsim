@@ -1,4 +1,4 @@
-//Compile Portable -- g++ -O3 gravsim.cpp presets.cpp particle.cpp generation.cpp cluster.cpp -o gravsim.exe -I include -L lib -lraylib -lgdi32 -lwinmm -static-libgcc -static-libstdc++ -static
+//Compile Portable -- g++ -O3 gravsim.cpp presets.cpp particle.cpp generation.cpp cluster.cpp orbit.cpp -o gravsim.exe -I include -L lib -lraylib -lgdi32 -lwinmm -static-libgcc -static-libstdc++ -static
 
 //Includes
 #include <iostream>
@@ -22,13 +22,11 @@
 #include "presets.h"
 #include "particle.h"
 #include "cluster.h"
+#include "orbit.h"
 
 
 
 //Utility Functions/Maths
-//Initialise random generator
-// std::mt19937 gen(3);
-
 
 Color randomColour(const std::vector<Color>&colourList) {
     int colouri = randomInteger(0,colourList.size()-1);
@@ -823,8 +821,8 @@ void UpdateOrbitCamera(Camera3D& camera, float& yaw, float& pitch, float& distan
 
     distance -= GetMouseWheelMove() * 1.0f;
 
-    if (distance < 3.0f) {
-        distance = 3.0f;
+    if (distance < 0.5f) {
+        distance = 0.5f;
     }
 
     if (distance > 100.0f) {
@@ -886,6 +884,16 @@ bool checkHideDiagnostics(bool hide) {
     }
     else {
         return hide;
+    }
+}
+
+//Toggle Axes
+bool checkDrawAxes(bool show) {
+    if (IsKeyPressed(KEY_F6)) {
+        return !show;
+    }
+    else {
+        return show;
     }
 }
 
@@ -1435,6 +1443,7 @@ int main() {
 
     bool hideInfo = false;
     bool hideDiagnostics = true;
+    bool drawAxes = true;
 
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
@@ -1516,6 +1525,7 @@ int main() {
 
         hideInfo = checkHideInfo(hideInfo);
         hideDiagnostics = checkHideDiagnostics(hideDiagnostics);
+        drawAxes = checkDrawAxes(drawAxes);
 
         targetUpdatesPerSecond = UpdateSimSpeed(targetUpdatesPerSecond);
         secondsPerUpdate = 1.0 / targetUpdatesPerSecond;
@@ -1530,12 +1540,15 @@ int main() {
 
         BeginMode3D(camera);
 
-        DrawGrid(20, 1.0f);
+        
+        if (drawAxes) {
+            DrawGrid(20, 1.0f);
 
+            DrawLine3D({ -10.0f, 0.0f, 0.0f }, { 10.0f, 0.0f, 0.0f }, RED);
+            DrawLine3D({ 0.0f, -10.0f, 0.0f }, { 0.0f, 10.0f, 0.0f }, GREEN);
+            DrawLine3D({ 0.0f, 0.0f, -10.0f }, { 0.0f, 0.0f, 10.0f }, BLUE);
+        }        
 
-        DrawLine3D({ -10.0f, 0.0f, 0.0f }, { 10.0f, 0.0f, 0.0f }, RED);
-        DrawLine3D({ 0.0f, -10.0f, 0.0f }, { 0.0f, 10.0f, 0.0f }, GREEN);
-        DrawLine3D({ 0.0f, 0.0f, -10.0f }, { 0.0f, 0.0f, 10.0f }, BLUE);
 
         const std::vector<Particle> &particles = sim.getParticles();
 
@@ -1598,4 +1611,10 @@ int main() {
 
     CloseWindow();
 
+    // OrbitParameters earthOrbit = {1.49598e11,0.0167,8.73e-7,-0.197,1.797,1.753,0};
+    // double earthMass = 5.9722e24;
+
+    // ParticleState earthState = stateFromKeplerianOrbit(earthOrbit,M0,earthMass,0);
+
+    // std::cout << earthState.position.magnitude() << " " << earthState.velocity.magnitude();
 }

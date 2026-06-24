@@ -148,6 +148,42 @@ Vect3 generateDisk(double maxRad, double flattening, Vect3 axis) {
     return vector;
 }
 
+Vect3 generateDisk(double minRad, double maxRad, double flattening, Vect3 axis) {
+    Vect3 n = axis.normalise();
+
+    if (flattening < 0.0) flattening = 0.0;
+    if (flattening > 1.0) flattening = 1.0;
+
+    Vect3 temp;
+    temp = {0.0, 0.0, 1.0};
+    if (temp.cross(n) == Vect3{0,0,0}) {
+        temp = {1.0, 0.0, 0.0};
+    }
+
+    Vect3 e1 = temp.cross(n).normalise();
+    Vect3 e2 = n.cross(e1);
+
+    double u = randomDouble(0.0, 1.0);
+
+    double rho = std::sqrt(
+        minRad * minRad
+        + u * (maxRad * maxRad - minRad * minRad)
+    );
+
+    double cosTheta = randomDouble(-1.0, 1.0);
+    double sinTheta = std::sqrt(1.0 - cosTheta * cosTheta);
+    double phi = randomDouble(0.0, 2.0 * pi);
+
+    double xLocal = rho * std::cos(phi);
+    double yLocal = rho * std::sin(phi);
+
+    double zLocal = flattening * rho * randomDouble(-1.0, 1.0);
+
+    Vect3 vector = e1 * xLocal + e2 * yLocal + n * zLocal;
+
+    return vector;
+}
+
 //Compute the velocity of a particle at x,y,z
 Vect3 globularVel(Vect3 pos, double totalMass) {
     double velScale;

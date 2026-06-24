@@ -3,7 +3,7 @@
 
 //Particle Class
 Particle::Particle(const OneParticleSettings &settings)
-        : mass(settings.mass), pos(settings.position), vel(settings.velocity), colour(settings.particleColour) {
+        : mass(settings.mass), pos(settings.position), vel(settings.velocity), colour(settings.colour) {
     }
 
 // Add (or subtract) force from total force acting on particle

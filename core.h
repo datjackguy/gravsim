@@ -3,6 +3,7 @@
 #include <cmath>
 #include "raylib.h"
 #include <vector>
+#include <string>
 
 
 //Global Constants
@@ -12,7 +13,7 @@ constexpr double M0 = 1.989e30; //kg
 constexpr double secondsPerYear = 365.25 * 24.0 * 60.0 * 60.0;
 constexpr double AUpermetre = 1/1.496e11;
 constexpr double pcpermetre = 1/3.086e16;
-const std::vector<Color> colourList = {RED,GREEN,BLUE,ORANGE,PURPLE,MAGENTA,SKYBLUE,PINK,GOLD,MAROON,LIME,DARKGREEN};
+inline const std::vector<Color> colourList = {RED,GREEN,BLUE,ORANGE,PURPLE,MAGENTA,SKYBLUE,PINK,GOLD,MAROON,LIME,DARKGREEN};
 
 
 //Enums
@@ -131,10 +132,8 @@ struct OneParticleSettings {
     double mass = 1e30;
     Vect3 position = {0,0,0}; //Set manually
     Vect3 velocity = {0,0,0}; //Set manually or automatically if autoOrbit = true;
-    Vect3 axis = {0,1,0}; //Accounts for inclination and orbit direction
-    double eccentricity = 0.0;
     bool autoOrbit = false;
-    Color particleColour = BLUE;
+    Color colour = BLUE;
 };
 
 struct UserSettings {
@@ -215,4 +214,27 @@ public:
     void removeCluster(int index) {
         clusters.erase(clusters.begin() + index);
     }
+};
+
+struct ParticleState {
+    Vect3 position;
+    Vect3 velocity;
+};
+
+struct OrbitParameters {
+    double semiMajorAxis;
+    double eccentricity;
+    double inclination;
+    double ascendingNode;
+    double argumentOfPeriapsis;
+    double meanAnomalyAtEpoch;
+    double epochSeconds;
+};
+
+struct BodyInfo {
+    std::string name;
+    double mass;
+    OrbitParameters orbit;
+    int ParentBody;
+    Color colour;
 };
