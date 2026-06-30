@@ -152,13 +152,26 @@ struct UserSettings {
     int selectedWindowSize = 0;
 };
 
+struct SolarSystemSettings {
+    bool enableAsteroids = true;
+    int asteroidCount = 30;
+    bool enableEarthMoon = false;
+    bool enableMoons = false;
+    bool enableDwarfPlanets = true;
+    bool enableComets = true;
+    bool enableRings = false;
+};
+
 struct InitSettings {
     //Dropdowns/Enum
     SystemPreset preset = SystemPreset::Clusters;
 
     int clusterCount = 1;
     //Add cluster menu
+    SolarSystemSettings SolarSystemSettings;
 };
+
+
 
 struct ClusterSettings {
     double size; //Radius - determines particle count (distributed from total UserSettings.particleN)

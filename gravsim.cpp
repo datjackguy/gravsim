@@ -1355,29 +1355,45 @@ void OpenSetupGUI(AllSettings& settings) {
             if (settings.init.preset != SystemPreset::SolarSystem) {
                 nSlider.draw(nextYpos);
                 nextYpos += nSlider.height;
+            }
 
+            if (settings.init.preset == SystemPreset::Clusters) {
+                clusterSlider.draw(nextYpos);
+                nextYpos += clusterSlider.height;
+            }
+
+            if (settings.init.preset != SystemPreset::SolarSystem && settings.init.preset != SystemPreset::MilkyWay) {
                 plotsizeSlider.draw(nextYpos);
                 nextYpos += plotsizeSlider.height;
+            }
 
+            if (settings.init.preset != SystemPreset::SolarSystem && settings.init.preset != SystemPreset::MilkyWay) {
                 centralMassTick.draw(nextYpos);
                 nextYpos += centralMassTick.height;
+            }
 
+            if (settings.init.preset != SystemPreset::SolarSystem) {
                 colourChoice.saveYpos(nextYpos);
                 nextYpos += colourChoice.height;
                 settings.user.colourScheme = static_cast<ColourOptions>(selectedColourIndex);
+            }
 
-                if (GuiButton(Rectangle{40, WINDOW_HEIGHT - 100, 400, 35}, "Initial Conditions")) {
+            if (settings.init.preset != SystemPreset::SolarSystem && settings.init.preset != SystemPreset::MilkyWay) {
+                if (GuiButton(Rectangle{40, WINDOW_HEIGHT - 100, 400, 35}, "Additional Options")) {
                     screen = SetupScreen::InitialConditions;
                 }
             }
 
-            drawTrailsTick.draw(nextYpos);
-            nextYpos += drawTrailsTick.height;
+            if (true) {
+                drawTrailsTick.draw(nextYpos);
+                nextYpos += drawTrailsTick.height;
 
-            if (settings.user.drawTrails) {
-                trailSlider.draw(nextYpos);
-                nextYpos += trailSlider.height;
+                if (settings.user.drawTrails) {
+                    trailSlider.draw(nextYpos);
+                    nextYpos += trailSlider.height;
             }
+            }
+
 
             if (GuiButton(Rectangle{40, WINDOW_HEIGHT - 50, 140, 35}, "Start")) {
                 startPressed = true;
@@ -1390,11 +1406,10 @@ void OpenSetupGUI(AllSettings& settings) {
         }
 
         else if (screen == SetupScreen::InitialConditions) {
-            DrawText("Initial Conditions", 40, nextYpos, 24, BLACK);
+            DrawText("Additional Options", 40, nextYpos, 24, BLACK);
             nextYpos += 60;
 
-            clusterSlider.draw(nextYpos);
-            nextYpos += clusterSlider.height;
+
 
             if (GuiButton(Rectangle{40, WINDOW_HEIGHT - 50, 140, 35}, "Save")) {
                 screen = SetupScreen::Main;
